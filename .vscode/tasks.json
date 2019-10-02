@@ -1,0 +1,20 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558 
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Cargo build armv7",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--examples",
+                "--target=armv7-unknown-linux-gnueabihf"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ]
+        }
+    ]
+}
