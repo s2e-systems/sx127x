@@ -11,7 +11,6 @@ use embedded_hal::blocking::delay::DelayMs;
 
 const FX_OSC: u32 = 32_000_000; // Oscillator frequency Hz
 const F_STEP: u32 = FX_OSC >> 19; 
-const MAX_FREQUENCY_DEVIATION: u32 = F_STEP * (1 << 14 - 1);
 
 bitfield!{
     struct PaConfig(u8);
@@ -23,7 +22,6 @@ bitfield!{
 bitfield!{
     struct OpMode(u8);
     long_range_mode, set_long_range_mode: 7;
-    modulation_type, set_modulation_type: 6,5;
     low_frequency_mode_on, set_low_frequency_mode_on: 3;
     mode, set_mode: 2,0; 
 }
@@ -90,8 +88,6 @@ pub enum SpreadingFactor {
 enum Registers {
     Fifo = 0x00,
     OpMode = 0x01,
-    FdevMsb = 0x04,
-    FdevLsb = 0x05,
     FrfMsb = 0x06,
     FrfMid = 0x07,
     FrfLsb = 0x08,
@@ -262,40 +258,7 @@ impl<SpiError, PinError, I: InputPin, O: OutputPin<Error = PinError>, S: spi::Tr
         let op_mode = OpMode(self.read_register(Registers::OpMode)?);
         Ok(op_mode.low_frequency_mode_on())
     }
-
-    pub fn set_modulation_mode(&mut self, modulation : Modulation) -> Result<(), Error<SpiError, PinError>> {
-        let mut op_mode = OpMode(self.read_register(Registers::OpMode)?);
-        op_mode.set_modulation_type(modulation as u8);
-        self.write_register(Registers::OpMode, &op_mode.0)
-    }
-
-    pub fn modulation_mode(&mut self) -> Result<Modulation, Error<SpiError, PinError>> {
-        let op_mode = OpMode(self.read_register(Registers::OpMode)?);
-        Ok(num::FromPrimitive::from_u8(op_mode.modulation_type()).unwrap())
-    }
-
-    pub fn set_frequency_deviation(&mut self, frequency_deviation: &u32) -> Result<(), Error<SpiError, PinError>> {
-        if *frequency_deviation > MAX_FREQUENCY_DEVIATION {
-            return Err(Error::InputOutOfRange);
-        }
-
-        let freq_dev : u32 = *frequency_deviation / F_STEP;
-
-        self.write_register(Registers::FdevMsb, &(((freq_dev >> 8) & 0x3F) as u8))?;
-        self.write_register(Registers::FdevLsb, &(((freq_dev >> 0) & 0xFF) as u8))?;
-
-        Ok(())
-    }
-
-    pub fn frequency_deviation(&mut self) -> Result<u32, Error<SpiError,PinError>> {
-        let freq_dev_msb = (self.read_register(Registers::FdevMsb)? & 0x3f) as u32;
-        let freq_dev_lsb = self.read_register(Registers::FdevLsb)? as u32;
-
-        let freq_dev = ((freq_dev_msb << 8) + (freq_dev_lsb << 0)) * F_STEP;
-
-        Ok(freq_dev)
-    }
-
+    
     pub fn set_sync_word(&mut self, sync_word: &u8) -> Result<(), Error<SpiError, PinError>> {
         self.write_register(Registers::SyncWord, sync_word)
     }
