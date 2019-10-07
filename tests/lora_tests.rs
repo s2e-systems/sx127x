@@ -244,7 +244,7 @@ fn test_lora_mode() {
 }
 
 #[test]
-fn test_trannsceiver_mode() {
+fn test_transceiver_mode() {
     let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
 
     nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());

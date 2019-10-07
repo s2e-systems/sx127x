@@ -26,6 +26,11 @@ bitfield!{
     mode, set_mode: 2,0; 
 }
 
+bitfield!{
+    struct PaRamp(u8);
+    pa_ramp, set_pa_ramp: 3,0;
+}
+
 /// Error type combining SPI and Pin errors for utility
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error<SpiError, PinError> {
@@ -50,6 +55,26 @@ pub struct SX1276<I: InputPin, O: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u3
 pub enum Modulation {
     FSK = 0x00,
     OOK = 0x01,
+}
+
+#[derive(FromPrimitive)]
+pub enum PaRampValue {
+    Ramp3_4ms = 0b0000,
+    Ramp2_0ms = 0b0001,
+    Ramp1_0ms = 0b0010,
+    Ramp500us = 0b0011,
+    Ramp250us = 0b0100,
+    Ramp125us = 0b0101,
+    Ramp100us = 0b0110,
+    Ramp62us  = 0b0111,
+    Ramp50us  = 0b1000,
+    Ramp40us  = 0b1001,
+    Ramp31us  = 0b1010,
+    Ramp25us  = 0b1011,
+    Ramp20us  = 0b1100,
+    Ramp15us  = 0b1101,
+    Ramp12us  = 0b1110,
+    Ramp10us  = 0b1111,
 }
 
 pub enum PaSelect {
@@ -93,6 +118,7 @@ enum Registers {
     FrfLsb = 0x08,
     PaConfig = 0x09,
     PaRamp = 0x0A,
+    Ocp = 0x0B,
     Lna = 0x0C,
     FifoAddrPtr = 0x0D,
     FifoTxBaseAddr = 0x0E,
@@ -258,6 +284,19 @@ impl<SpiError, PinError, I: InputPin, O: OutputPin<Error = PinError>, S: spi::Tr
         let op_mode = OpMode(self.read_register(Registers::OpMode)?);
         Ok(op_mode.low_frequency_mode_on())
     }
+
+    pub fn set_pa_ramp(&mut self, pa_ramp_value: PaRampValue) -> Result<(), Error<SpiError, PinError>> {
+        let mut pa_ramp = PaRamp(self.read_register(Registers::PaRamp)?);
+        pa_ramp.set_pa_ramp(pa_ramp_value as u8);
+        self.write_register(Registers::PaRamp, &pa_ramp.0)
+    }
+
+    pub fn pa_ramp(&mut self) -> Result<PaRampValue, Error<SpiError, PinError>> {
+        let pa_ramp = PaRamp(self.read_register(Registers::PaRamp)?);
+        Ok(num::FromPrimitive::from_u8(pa_ramp.pa_ramp()).unwrap())
+    }
+
+
     
     pub fn set_sync_word(&mut self, sync_word: &u8) -> Result<(), Error<SpiError, PinError>> {
         self.write_register(Registers::SyncWord, sync_word)
