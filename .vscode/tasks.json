@@ -9,8 +9,19 @@
             "command": "cargo",
             "args": [
                 "build",
-                "--examples",
+                //"--examples",
                 "--target=armv7-unknown-linux-gnueabihf"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+        {
+            "label": "Cargo test",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "test"
             ],
             "problemMatcher": [
                 "$rustc"
