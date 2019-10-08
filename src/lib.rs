@@ -31,6 +31,42 @@ bitfield!{
     pa_ramp, set_pa_ramp: 3,0;
 }
 
+bitfield!{
+    struct Ocp(u8);
+    ocp_on, set_ocp_on: 5;
+    ocp_trim, set_ocp_trim: 4,0;
+}
+
+bitfield!{
+    struct Lna(u8);
+    lna_gain, set_lna_gain: 7,5;
+    lna_boost_hf, set_lna_boost_hf: 1,0;
+}
+
+bitfield!{
+    struct IrqFlagsMask(u8);
+    rx_timeout_mask, set_rx_timeout_mask: 7;
+    rx_done_mask, set_rx_done_mask: 6;
+    payload_crc_error_mask, set_payload_crc_error_mask: 5;
+    valid_header_mask, set_valid_header_mask: 4;
+    tx_done_mask, set_tx_done_mask: 3;
+    cad_done_mask, set_cad_done_mask: 2;
+    fhss_change_channel_mask, set_fhss_change_channel_mask: 1;
+    cad_detected_mask, set_cad_detected_mask: 0;
+}
+
+bitfield!{
+    struct IrqFlags(u8);
+    rx_timeout_mask, clear_rx_timeout_mask: 7;
+    rx_done_mask, clear_rx_done_mask: 6;
+    payload_crc_error_mask, clear_payload_crc_error_mask: 5;
+    valid_header_mask, clear_valid_header_mask: 4;
+    tx_done_mask, clear_tx_done_mask: 3;
+    cad_done_mask, clear_cad_done_mask: 2;
+    fhss_change_channel_mask, clear_fhss_change_channel_mask: 1;
+    cad_detected_mask, clear_cad_detected_mask: 0;
+}
+
 /// Error type combining SPI and Pin errors for utility
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error<SpiError, PinError> {
@@ -94,10 +130,14 @@ pub enum TransceiverMode {
     CAD = 0x07,
 }
 
-pub enum Lna {
-    Off = 0x00,
-    LowGain = 0x20,
-    MaxGain = 0x23,
+#[derive(FromPrimitive)]
+pub enum LnaGainValue {
+    G1 = 0b001,
+    G2 = 0b010,
+    G3 = 0b011,
+    G4 = 0b100,
+    G5 = 0b101,
+    G6 = 0b110,
 }
 
 pub enum SpreadingFactor {
@@ -296,6 +336,166 @@ impl<SpiError, PinError, I: InputPin, O: OutputPin<Error = PinError>, S: spi::Tr
         Ok(num::FromPrimitive::from_u8(pa_ramp.pa_ramp()).unwrap())
     }
 
+    pub fn set_over_current_protection(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut ocp = Ocp(self.read_register(Registers::Ocp)?);
+        ocp.set_ocp_on(*on);
+        self.write_register(Registers::Ocp, &ocp.0)
+    }
+
+    pub fn over_current_protection(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let ocp = Ocp(self.read_register(Registers::Ocp)?);
+        Ok(ocp.ocp_on())
+    }
+
+    pub fn set_ocp_trim(&mut self, ocp_trim: &u8) -> Result<(), Error<SpiError, PinError>> {
+        if *ocp_trim > 0x1F {
+            return Err(Error::InputOutOfRange);
+        }
+        let mut ocp = Ocp(self.read_register(Registers::Ocp)?);
+        ocp.set_ocp_trim(*ocp_trim);
+        self.write_register(Registers::Ocp, &ocp.0)
+    }
+
+    pub fn ocp_trim(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+        let ocp = Ocp(self.read_register(Registers::Ocp)?);
+        Ok(ocp.ocp_trim())
+    }
+
+    pub fn set_lna_gain(&mut self, lna_gain: LnaGainValue) -> Result<(), Error<SpiError, PinError>> {
+        let mut lna = Lna(self.read_register(Registers::Lna)?);
+        lna.set_lna_gain(lna_gain as u8);
+        self.write_register(Registers::Lna, &lna.0)
+    }
+
+    pub fn lna_gain(&mut self) -> Result<LnaGainValue, Error<SpiError, PinError>> {
+        let lna = Lna(self.read_register(Registers::Lna)?);
+        Ok(num::FromPrimitive::from_u8(lna.lna_gain()).unwrap())
+    }
+
+    pub fn set_lna_boost_hf(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut lna = Lna(self.read_register(Registers::Lna)?);
+        match *on {
+            true => lna.set_lna_boost_hf(0b11),
+            false => lna.set_lna_boost_hf(0b00),
+        };
+        self.write_register(Registers::Lna, &lna.0)
+    }
+
+    pub fn set_fifo_addr_ptr(&mut self, addr: &u8) -> Result<(), Error<SpiError, PinError>> {
+        self.write_register(Registers::FifoAddrPtr, addr)
+    }
+
+    pub fn fifo_addr_ptr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+        self.read_register(Registers::FifoAddrPtr)
+    }
+
+    pub fn set_fifo_tx_base_addr(&mut self, addr: &u8) -> Result<(), Error<SpiError, PinError>> {
+        self.write_register(Registers::FifoTxBaseAddr, addr)
+    }
+
+    pub fn fifo_tx_base_addr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+        self.read_register(Registers::FifoTxBaseAddr)
+    }
+
+    pub fn set_fifo_rx_base_addr(&mut self, addr: &u8) -> Result<(), Error<SpiError, PinError>> {
+        self.write_register(Registers::FifoRxBaseAddr, addr)
+    }
+
+    pub fn fifo_rx_base_addr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+        self.read_register(Registers::FifoRxBaseAddr)
+    }
+
+    pub fn fifo_rx_current_addr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+        self.read_register(Registers::FifoRxCurrentAddr)
+    }
+
+    pub fn set_rx_timeout_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        irq_flags_mask.set_rx_timeout_mask(*on);
+        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
+    }
+
+    pub fn rx_timeout_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        Ok(irq_flags_mask.rx_timeout_mask())
+    }
+
+    pub fn set_rx_done_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        irq_flags_mask.set_rx_done_mask(*on);
+        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
+    }
+
+    pub fn rx_done_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        Ok(irq_flags_mask.rx_done_mask())
+    }
+
+    pub fn set_payload_crc_error_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        irq_flags_mask.set_payload_crc_error_mask(*on);
+        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
+    }
+
+    pub fn payload_crc_error_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        Ok(irq_flags_mask.payload_crc_error_mask())
+    }
+
+    pub fn set_valid_header_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        irq_flags_mask.set_valid_header_mask(*on);
+        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
+    }
+
+    pub fn valid_header_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        Ok(irq_flags_mask.valid_header_mask())
+    }
+
+    pub fn set_tx_done_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        irq_flags_mask.set_tx_done_mask(*on);
+        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
+    }
+
+    pub fn tx_done_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        Ok(irq_flags_mask.tx_done_mask())
+    }
+
+    pub fn set_cad_done_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        irq_flags_mask.set_cad_done_mask(*on);
+        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
+    }
+
+    pub fn cad_done_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        Ok(irq_flags_mask.cad_done_mask())
+    }
+
+    pub fn set_fhss_change_channel_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        irq_flags_mask.set_fhss_change_channel_mask(*on);
+        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
+    }
+
+    pub fn fhss_change_channel_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        Ok(irq_flags_mask.fhss_change_channel_mask())
+    }
+
+    pub fn set_cad_detected_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
+        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        irq_flags_mask.set_cad_detected_mask(*on);
+        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
+    }
+
+    pub fn cad_detected_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
+        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
+        Ok(irq_flags_mask.cad_detected_mask())
+    }
 
     
     pub fn set_sync_word(&mut self, sync_word: &u8) -> Result<(), Error<SpiError, PinError>> {
