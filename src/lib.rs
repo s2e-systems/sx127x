@@ -6,7 +6,7 @@ extern crate bitfield;
 extern crate num_derive;
 
 use embedded_hal::blocking::spi;
-use embedded_hal::digital::v2::{InputPin,OutputPin};
+use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::blocking::delay::DelayMs;
 
 const FX_OSC: u32 = 32_000_000; // Oscillator frequency Hz
@@ -110,10 +110,9 @@ pub enum Error<SpiError, PinError> {
 }
 
 #[allow(dead_code)]
-pub struct SX1276<I: InputPin, O: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>>{
+pub struct SX1276<O: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>>{
     reset_line: O,
     nss_line: O,
-    dio0_line: I,
     spi: S,
     delay: D,
 }
@@ -278,13 +277,12 @@ enum Registers {
     PaDac = 0x4D,
 }
 
-impl<SpiError, PinError, I: InputPin, O: OutputPin<Error = PinError>, S: spi::Transfer<u8, Error = SpiError>, D: DelayMs<u32>> SX1276<I, O, S, D> {
+impl<SpiError, PinError, O: OutputPin<Error = PinError>, S: spi::Transfer<u8, Error = SpiError>, D: DelayMs<u32>> SX1276<O, S, D> {
 
-    pub fn new(spi: S, reset_line: O, nss_line: O, dio0_line: I, delay: D) -> Result::<SX1276<I, O, S, D>, Error<SpiError, PinError>>{
+    pub fn new(spi: S, reset_line: O, nss_line: O, delay: D) -> Result::<SX1276<O, S, D>, Error<SpiError, PinError>>{
         let mut hat = SX1276 {
             reset_line,
             nss_line,
-            dio0_line,
             spi,
             delay,
         };
@@ -320,6 +318,13 @@ impl<SpiError, PinError, I: InputPin, O: OutputPin<Error = PinError>, S: spi::Tr
         self.read_register(Registers::Version)
     }
 
+    pub fn write_fifo(&mut self, value: &u8) -> Result<(), Error<SpiError, PinError>> {
+        self.write_register(Registers::Fifo, value)
+    }
+
+    pub fn read_fifo(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+        self.read_register(Registers::Fifo)
+    }
     pub fn frequency(&mut self) -> Result<u32, Error<SpiError, PinError>> {
         let freq_msb = self.read_register(Registers::FrfMsb)? as u32;
         let freq_mid = self.read_register(Registers::FrfMid)? as u32;
