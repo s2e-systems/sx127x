@@ -2,7 +2,7 @@ extern crate lorahatlib;
 extern crate embedded_hal_mock;
 
 use lorahatlib::SX1276;
-use lorahatlib::{PaSelect,TransceiverMode, PaRampValue, LnaGainValue};
+use lorahatlib::{PaSelect,TransceiverMode, PaRampValue, LnaGainValue, BandwidthValue, CodingRateValue, SpreadingFactorValue};
 
 //use embedded_hal_mock::MockError;
 use embedded_hal_mock::pin::{Transaction as PinTransaction, Mock as PinMock, State as PinState};
@@ -560,4 +560,501 @@ fn test_base_addresses() {
     assert_eq!(sx1276.fifo_rx_base_addr().unwrap(),0xFF);
     sx1276.set_fifo_rx_base_addr(&0x02).unwrap();
     assert_eq!(sx1276.fifo_rx_current_addr().unwrap(),0x11);
+}
+
+#[test]
+fn test_irq_flag_masks() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x91,0x80],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x91,0x40],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x91,0x20],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x91,0x10],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x91,0x08],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x91,0x04],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x91,0x02],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x91,0x01],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x01]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x02]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x04]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x08]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x10]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x20]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x40]),
+        SpiTransaction::transfer(vec![0x11,0x00],vec![0x00,0x80]),
+    ]);
+
+    for _n in 0..spi_transactions.len() {
+        nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    }
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.set_irq_rx_timeout_mask(&true).unwrap();
+    sx1276.set_irq_rx_done_mask(&true).unwrap();
+    sx1276.set_irq_payload_crc_error_mask(&true).unwrap();
+    sx1276.set_irq_valid_header_mask(&true).unwrap();
+    sx1276.set_irq_tx_done_mask(&true).unwrap();
+    sx1276.set_irq_cad_done_mask(&true).unwrap();
+    sx1276.set_irq_fhss_change_channel_mask(&true).unwrap();
+    sx1276.set_irq_cad_detected_mask(&true).unwrap();
+    assert_eq!(sx1276.irq_cad_detected_mask().unwrap(),true);
+    assert_eq!(sx1276.irq_fhss_change_channel_mask().unwrap(),true);
+    assert_eq!(sx1276.irq_cad_done_mask().unwrap(),true);
+    assert_eq!(sx1276.irq_tx_done_mask().unwrap(),true);
+    assert_eq!(sx1276.irq_valid_header_mask().unwrap(),true);
+    assert_eq!(sx1276.irq_payload_crc_error_mask().unwrap(),true);
+    assert_eq!(sx1276.irq_rx_done_mask().unwrap(),true);
+    assert_eq!(sx1276.irq_rx_timeout_mask().unwrap(),true);
+}
+
+#[test]
+fn test_irq_flag() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x92,0x80],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x92,0x40],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x92,0x20],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x92,0x10],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x92,0x08],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x92,0x04],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x92,0x02],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x92,0x01],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x01]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x02]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x04]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x08]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x10]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x20]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x40]),
+        SpiTransaction::transfer(vec![0x12,0x00],vec![0x00,0x80]),
+    ]);
+
+    for _n in 0..spi_transactions.len() {
+        nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    }
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.clear_irq_rx_timeout().unwrap();
+    sx1276.clear_irq_rx_done().unwrap();
+    sx1276.clear_irq_payload_crc_error().unwrap();
+    sx1276.clear_irq_valid_header().unwrap();
+    sx1276.clear_irq_tx_done().unwrap();
+    sx1276.clear_irq_cad_done().unwrap();
+    sx1276.clear_irq_fhss_change_channel().unwrap();
+    sx1276.clear_irq_cad_detected().unwrap();
+    assert_eq!(sx1276.irq_cad_detected().unwrap(),true);
+    assert_eq!(sx1276.irq_fhss_change_channel().unwrap(),true);
+    assert_eq!(sx1276.irq_cad_done().unwrap(),true);
+    assert_eq!(sx1276.irq_tx_done().unwrap(),true);
+    assert_eq!(sx1276.irq_valid_header().unwrap(),true);
+    assert_eq!(sx1276.irq_payload_crc_error().unwrap(),true);
+    assert_eq!(sx1276.irq_rx_done().unwrap(),true);
+    assert_eq!(sx1276.irq_rx_timeout().unwrap(),true);
+}
+
+#[test]
+fn test_rx_header_count() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x14,0x00],vec![0x00,0x80]),
+        SpiTransaction::transfer(vec![0x15,0x00],vec![0x00,0x08]),
+        SpiTransaction::transfer(vec![0x14,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x15,0x00],vec![0x00,0xFF]),
+    ]);
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    assert_eq!(sx1276.rx_header_count().unwrap(),0x8008);
+    assert_eq!(sx1276.rx_header_count().unwrap(),0xFFFF);
+}
+
+#[test]
+fn test_rx_packet_count() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x16,0x00],vec![0x00,0x80]),
+        SpiTransaction::transfer(vec![0x17,0x00],vec![0x00,0x08]),
+        SpiTransaction::transfer(vec![0x16,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x17,0x00],vec![0x00,0xFF]),
+    ]);
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    assert_eq!(sx1276.rx_packet_count().unwrap(),0x8008);
+    assert_eq!(sx1276.rx_packet_count().unwrap(),0xFFFF);
+}
+
+#[test]
+fn test_modem_status() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0b00010101]),
+    ]);
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    assert_eq!(sx1276.rx_coding_rate().unwrap(),0b111);
+
+    let modem_status_all_true = sx1276.modem_status().unwrap();
+    assert_eq!(*modem_status_all_true.modem_clear(),true);
+    assert_eq!(*modem_status_all_true.header_info_valid(),true);
+    assert_eq!(*modem_status_all_true.rx_ongoing(),true);
+    assert_eq!(*modem_status_all_true.signal_synchronized(),true);
+    assert_eq!(*modem_status_all_true.signal_detected(),true);
+
+    let modem_status_mixed = sx1276.modem_status().unwrap();
+    assert_eq!(*modem_status_mixed.modem_clear(),true);
+    assert_eq!(*modem_status_mixed.header_info_valid(),false);
+    assert_eq!(*modem_status_mixed.rx_ongoing(),true);
+    assert_eq!(*modem_status_mixed.signal_synchronized(),false);
+    assert_eq!(*modem_status_mixed.signal_detected(),true);
+}
+
+#[test]
+fn test_bandwidth() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9D,0x0F],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9D,0x1F],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x20],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x30],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x40],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x50],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x60],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x70],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x80],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x90],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x10]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x20]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x30]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x40]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x50]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x60]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x70]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x80]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x90]),
+    ]);
+
+    for _n in 0..spi_transactions.len() {
+        nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    }
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.set_bandwidth(BandwidthValue::Bw7_8kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw10_4kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw15_6kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw20_8kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw31_25kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw41_7kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw62_5kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw125kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw250kHz).unwrap();
+    sx1276.set_bandwidth(BandwidthValue::Bw500kHz).unwrap();
+
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw7_8kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw10_4kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw15_6kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw20_8kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw31_25kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw41_7kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw62_5kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw125kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw250kHz);
+    assert_eq!(sx1276.bandwidth().unwrap(),BandwidthValue::Bw500kHz);
+}
+
+#[test]
+fn test_coding_rate() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9D,0xF3],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9D,0xF5],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x06],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x08],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x08]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x06]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x04]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x02]),
+    ]);
+
+    for _n in 0..spi_transactions.len() {
+        nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    }
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.set_coding_rate(CodingRateValue::Cr4_5).unwrap();
+    sx1276.set_coding_rate(CodingRateValue::Cr4_6).unwrap();
+    sx1276.set_coding_rate(CodingRateValue::Cr4_7).unwrap();
+    sx1276.set_coding_rate(CodingRateValue::Cr4_8).unwrap();
+
+    assert_eq!(sx1276.coding_rate().unwrap(),CodingRateValue::Cr4_8);
+    assert_eq!(sx1276.coding_rate().unwrap(),CodingRateValue::Cr4_7);
+    assert_eq!(sx1276.coding_rate().unwrap(),CodingRateValue::Cr4_6);
+    assert_eq!(sx1276.coding_rate().unwrap(),CodingRateValue::Cr4_5);
+}
+
+#[test]
+fn test_implicit_header_mode() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9D,0xFE],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1D,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9D,0x01],vec![0x00,0x00]),
+    ]);
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.set_implicit_header_mode(&false).unwrap();
+    sx1276.set_implicit_header_mode(&true).unwrap();
+}
+
+#[test]
+fn test_spreading_factor() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9E,0x6F],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9E,0x7F],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9E,0x80],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9E,0x90],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9E,0xA0],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9E,0xB0],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9E,0xC0],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0xC0]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0xB0]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0xA0]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x90]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x80]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x70]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x60]),
+    ]);
+
+    for _n in 0..spi_transactions.len() {
+        nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    }
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.set_spreading_factor(SpreadingFactorValue::SF6).unwrap();
+    sx1276.set_spreading_factor(SpreadingFactorValue::SF7).unwrap();
+    sx1276.set_spreading_factor(SpreadingFactorValue::SF8).unwrap();
+    sx1276.set_spreading_factor(SpreadingFactorValue::SF9).unwrap();
+    sx1276.set_spreading_factor(SpreadingFactorValue::SF10).unwrap();
+    sx1276.set_spreading_factor(SpreadingFactorValue::SF11).unwrap();
+    sx1276.set_spreading_factor(SpreadingFactorValue::SF12).unwrap();
+
+    assert_eq!(sx1276.spreading_factor().unwrap(),SpreadingFactorValue::SF12);
+    assert_eq!(sx1276.spreading_factor().unwrap(),SpreadingFactorValue::SF11);
+    assert_eq!(sx1276.spreading_factor().unwrap(),SpreadingFactorValue::SF10);
+    assert_eq!(sx1276.spreading_factor().unwrap(),SpreadingFactorValue::SF9);
+    assert_eq!(sx1276.spreading_factor().unwrap(),SpreadingFactorValue::SF8);
+    assert_eq!(sx1276.spreading_factor().unwrap(),SpreadingFactorValue::SF7);
+    assert_eq!(sx1276.spreading_factor().unwrap(),SpreadingFactorValue::SF6);
+}
+
+#[test]
+fn test_tx_continous_mode() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9E,0xF7],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9E,0x08],vec![0x00,0x00]),
+    ]);
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.set_tx_continuous_mode(&false).unwrap();
+    sx1276.set_tx_continuous_mode(&true).unwrap();
+}
+
+#[test]
+fn test_rx_payload_crc() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x9E,0xFB],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x1E,0x00],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x9E,0x04],vec![0x00,0x00]),
+    ]);
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.set_rx_payload_crc(&false).unwrap();
+    sx1276.set_rx_payload_crc(&true).unwrap();
+}
+
+
+#[test]
+fn test_payload_and_max_payload_length() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0xA2,0x50],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0xA3,0xFF],vec![0x00,0x00]),
+    ]);
+
+    let reset_line = PinMock::new(&init_reset_expectations);
+    let nss_line =  PinMock::new(&nss_expectations);
+    let dio0_line =  PinMock::new(&[]);
+    let spi = SpiMock::new(&spi_transactions);
+    let delay = MockNoop::new();
+
+    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+
+    sx1276.set_payload_length(&0x50).unwrap();
+    sx1276.set_payload_max_length(&0xFF).unwrap();
 }
