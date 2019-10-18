@@ -509,6 +509,10 @@ impl<SpiError, PinError, O: OutputPin<Error = PinError>, S: spi::Transfer<u8, Er
         self.read_register(Registers::FifoRxCurrentAddr)
     }
 
+    pub fn set_hop_period(&mut self, period: &u8) -> Result<(), Error<SpiError, PinError>> {
+        self.write_register(Registers::HopPeriod, period)
+    }
+
     pub fn set_irq_rx_timeout_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
         let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
         irq_flags_mask.set_rx_timeout_mask(*on);
@@ -807,7 +811,9 @@ impl<SpiError, PinError, O: OutputPin<Error = PinError>, S: spi::Transfer<u8, Er
         Ok(modem_config2.rx_payload_crc_on())
     }
 
-    // TODO: SYMB TIMEOUT
+    pub fn set_symb_timeout(&mut self, value: &u8) -> Result<(), Error<SpiError, PinError>> {
+        self.write_register(Registers::SymbTimeoutLsb, value)
+    }
 
     // TODO: PREAMBLE_LENGTH
 
