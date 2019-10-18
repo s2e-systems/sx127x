@@ -9,8 +9,7 @@ use embedded_hal::blocking::spi;
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::blocking::delay::DelayMs;
 
-const FX_OSC: u32 = 32_000_000; // Oscillator frequency Hz
-const F_STEP: u32 = FX_OSC >> 19; 
+const FX_OSC: u64 = 32_000_000; // Oscillator frequency Hz
 
 bitfield!{
     struct PaConfig(u8);
@@ -326,17 +325,17 @@ impl<SpiError, PinError, O: OutputPin<Error = PinError>, S: spi::Transfer<u8, Er
         self.read_register(Registers::Fifo)
     }
     pub fn frequency(&mut self) -> Result<u32, Error<SpiError, PinError>> {
-        let freq_msb = self.read_register(Registers::FrfMsb)? as u32;
-        let freq_mid = self.read_register(Registers::FrfMid)? as u32;
-        let freq_lsb = self.read_register(Registers::FrfLsb)? as u32;
+        let freq_msb = self.read_register(Registers::FrfMsb)? as u64;
+        let freq_mid = self.read_register(Registers::FrfMid)? as u64;
+        let freq_lsb = self.read_register(Registers::FrfLsb)? as u64;
 
-        let freq = ((freq_msb << 16) + (freq_mid << 8) + (freq_lsb << 0)) * F_STEP;
+        let freq = ((((freq_msb << 16) + (freq_mid << 8) + (freq_lsb << 0))) * FX_OSC) >> 19;
 
-        Ok(freq)
+        Ok(freq as u32)
     }
 
     pub fn set_frequency(&mut self, frequency: &u32) -> Result<(), Error<SpiError, PinError>> {
-        let freq : u32 = *frequency / F_STEP;
+        let freq : u64 = (((*frequency) as u64) << 19) / FX_OSC;
 
         self.write_register(Registers::FrfMsb, &(((freq >>16) & 0xFF) as u8))?;
         self.write_register(Registers::FrfMid, &(((freq >> 8) & 0xFF) as u8))?;
