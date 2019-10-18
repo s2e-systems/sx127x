@@ -111,9 +111,9 @@ pub enum Error<SpiError, PinError> {
 }
 
 #[allow(dead_code)]
-pub struct SX1276<O: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>>{
-    reset_line: O,
-    nss_line: O,
+pub struct SX1276<O1: OutputPin, O2: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>>{
+    reset_line: O1,
+    nss_line: O2,
     spi: S,
     delay: D,
 }
@@ -278,9 +278,9 @@ enum Registers {
     PaDac = 0x4D,
 }
 
-impl<SpiError, PinError, O: OutputPin<Error = PinError>, S: spi::Transfer<u8, Error = SpiError>, D: DelayMs<u32>> SX1276<O, S, D> {
+impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = PinError>, S: spi::Transfer<u8, Error = SpiError>, D: DelayMs<u32>> SX1276<O1, O2, S, D> {
 
-    pub fn new(spi: S, reset_line: O, nss_line: O, delay: D) -> Result::<SX1276<O, S, D>, Error<SpiError, PinError>>{
+    pub fn new(spi: S, reset_line: O1, nss_line: O2, delay: D) -> Result::<SX1276<O1, O2, S, D>, Error<SpiError, PinError>>{
         let mut hat = SX1276 {
             reset_line,
             nss_line,
