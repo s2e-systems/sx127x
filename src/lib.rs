@@ -1,3 +1,5 @@
+#![no_std]
+
 extern crate embedded_hal;
 extern crate num;
 #[macro_use]
