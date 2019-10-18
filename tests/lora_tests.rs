@@ -4,7 +4,8 @@ extern crate embedded_hal_mock;
 use lorahatlib::SX1276;
 use lorahatlib::{PaSelect,TransceiverMode, PaRampValue, LnaGainValue, BandwidthValue, CodingRateValue, SpreadingFactorValue};
 
-//use embedded_hal_mock::MockError;
+use std::vec::Vec;
+
 use embedded_hal_mock::pin::{Transaction as PinTransaction, Mock as PinMock, State as PinState};
 
 use embedded_hal_mock::spi::{Mock as SpiMock, Transaction as SpiTransaction};
@@ -34,6 +35,15 @@ fn get_sx1276_create_transactions() -> (Vec<PinTransaction>, Vec<PinTransaction>
     (reset_expectations, nss_expectations, spi_transactions)
 }
 
+fn create_sx1276(reset_expectations: &Vec<PinTransaction>, nss_expectations: &Vec<PinTransaction>, spi_expectations: &Vec<SpiTransaction>) -> SX1276<PinMock, SpiMock, MockNoop> {
+    let reset_line = PinMock::new(reset_expectations);
+    let nss_line =  PinMock::new(nss_expectations);
+    let spi = SpiMock::new(spi_expectations);
+    let delay = MockNoop::new();
+
+    SX1276::new(spi, reset_line, nss_line, delay).unwrap()
+}
+
 #[test]
 fn test_create_lora() {
     let (reset_expectations,nss_expectations,spi_transactions) = get_sx1276_create_transactions();
@@ -41,15 +51,12 @@ fn test_create_lora() {
     let reset_line = PinMock::new(&reset_expectations);
     let nss_line =  PinMock::new(&nss_expectations);
 
-    // DIO0 not used for now but needs to be available for the driver
-    let dio0_line =  PinMock::new(&[]);
-
     let spi = SpiMock::new(&spi_transactions);
 
     // No delays in the operation
     let delay = MockNoop::new();
 
-    let _lora = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let _lora = SX1276::new(spi, reset_line, nss_line, delay).unwrap();
 }
 
 #[test]
@@ -63,15 +70,13 @@ fn test_create_wrong_lora_chip()
     let reset_line = PinMock::new(&reset_expectations);
     let nss_line =  PinMock::new(&nss_expectations);
 
-    // DIO0 not used for now but needs to be available for the driver
-    let dio0_line =  PinMock::new(&[]);
 
     let spi = SpiMock::new(&spi_transactions);
 
     // No delays in the operation
     let delay = MockNoop::new();
 
-    assert_eq!(SX1276::new(spi, reset_line, nss_line, dio0_line, delay).err(), Some(lorahatlib::Error::InvalidVersion));
+    assert_eq!(SX1276::new(spi, reset_line, nss_line, delay).err(), Some(lorahatlib::Error::InvalidVersion));
 }
 
 #[test]
@@ -85,17 +90,11 @@ fn test_set_frequency()
 
     spi_transactions.append(&mut vec![
         SpiTransaction::transfer(vec![0x86,0xD9],vec![0x00,0x00]),
-        SpiTransaction::transfer(vec![0x87,0x26],vec![0x00,0x00]),
-        SpiTransaction::transfer(vec![0x88,0x6B],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x87,0x06],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x88,0x66],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_frequency(&868100000).unwrap();
 
@@ -112,19 +111,13 @@ fn test_get_frequency()
 
     spi_transactions.append(&mut vec![
         SpiTransaction::transfer(vec![0x06,0x00],vec![0x00,0xD9]),
-        SpiTransaction::transfer(vec![0x07,0x00],vec![0x00,0x26]),
-        SpiTransaction::transfer(vec![0x08,0x00],vec![0x00,0x6B]),
+        SpiTransaction::transfer(vec![0x07,0x00],vec![0x00,0x06]),
+        SpiTransaction::transfer(vec![0x08,0x00],vec![0x00,0x66]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
-
-    assert_eq!(sx1276.frequency().unwrap(),868099967);
+    assert!(((sx1276.frequency().unwrap() as i32)-868100000).abs() < 30);
 }
 
 #[test]
@@ -143,13 +136,7 @@ fn test_pa_select() {
         SpiTransaction::transfer(vec![0x89,0x80],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_pa_select(PaSelect::RfoPin).unwrap();
     sx1276.set_pa_select(PaSelect::PaBoost).unwrap();
@@ -171,13 +158,7 @@ fn test_max_power() {
         SpiTransaction::transfer(vec![0x89,0x50],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_max_power(&0).unwrap();
     sx1276.set_max_power(&5).unwrap();
@@ -201,13 +182,7 @@ fn test_output_power() {
         SpiTransaction::transfer(vec![0x89,0x05],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_output_power(&0).unwrap();
     sx1276.set_output_power(&5).unwrap();
@@ -231,13 +206,7 @@ fn test_lora_mode() {
         SpiTransaction::transfer(vec![0x81,0x7F],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_lora_mode(&true).unwrap();
     sx1276.set_lora_mode(&false).unwrap();
@@ -283,13 +252,7 @@ fn test_transceiver_mode() {
         SpiTransaction::transfer(vec![0x81,0x07],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_transceiver_mode(TransceiverMode::Sleep).unwrap();
     sx1276.set_transceiver_mode(TransceiverMode::Standby).unwrap();
@@ -317,13 +280,7 @@ fn test_low_frequency_mode() {
         SpiTransaction::transfer(vec![0x81,0xF7],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_low_frequency_mode(&true).unwrap();
     sx1276.set_low_frequency_mode(&false).unwrap();
@@ -372,13 +329,7 @@ fn test_pa_ramp() {
         nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
     }
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_pa_ramp(PaRampValue::Ramp3_4ms).unwrap();
     sx1276.set_pa_ramp(PaRampValue::Ramp2_0ms).unwrap();
@@ -414,13 +365,7 @@ fn test_over_current_protection_on() {
         SpiTransaction::transfer(vec![0x8B,0x20],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_over_current_protection(&false).unwrap();
     sx1276.set_over_current_protection(&true).unwrap();
@@ -442,13 +387,7 @@ fn test_ocp_trim() {
         SpiTransaction::transfer(vec![0x8B,0x05],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_ocp_trim(&0).unwrap();
     sx1276.set_ocp_trim(&5).unwrap();
@@ -479,13 +418,7 @@ fn test_lna_gain() {
         nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
     }
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_lna_gain(LnaGainValue::G1).unwrap();
     sx1276.set_lna_gain(LnaGainValue::G2).unwrap();
@@ -511,13 +444,7 @@ fn test_lna_boost_hf() {
         SpiTransaction::transfer(vec![0x8C,0x03],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_lna_boost_hf(&false).unwrap();
     sx1276.set_lna_boost_hf(&true).unwrap();
@@ -545,13 +472,7 @@ fn test_base_addresses() {
         SpiTransaction::transfer(vec![0x10,0x00],vec![0x00,0x11]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     assert_eq!(sx1276.fifo_addr_ptr().unwrap(),0x80);
     sx1276.set_fifo_addr_ptr(&0x01).unwrap();
@@ -597,13 +518,7 @@ fn test_irq_flag_masks() {
         nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
     }
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_irq_rx_timeout_mask(&true).unwrap();
     sx1276.set_irq_rx_done_mask(&true).unwrap();
@@ -658,13 +573,7 @@ fn test_irq_flag() {
         nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
     }
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.clear_irq_rx_timeout().unwrap();
     sx1276.clear_irq_rx_done().unwrap();
@@ -700,13 +609,7 @@ fn test_rx_header_count() {
         SpiTransaction::transfer(vec![0x15,0x00],vec![0x00,0xFF]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     assert_eq!(sx1276.rx_header_count().unwrap(),0x8008);
     assert_eq!(sx1276.rx_header_count().unwrap(),0xFFFF);
@@ -728,13 +631,7 @@ fn test_rx_packet_count() {
         SpiTransaction::transfer(vec![0x17,0x00],vec![0x00,0xFF]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     assert_eq!(sx1276.rx_packet_count().unwrap(),0x8008);
     assert_eq!(sx1276.rx_packet_count().unwrap(),0xFFFF);
@@ -754,13 +651,7 @@ fn test_modem_status() {
         SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0b00010101]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     assert_eq!(sx1276.rx_coding_rate().unwrap(),0b111);
 
@@ -820,13 +711,7 @@ fn test_bandwidth() {
         nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
     }
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_bandwidth(BandwidthValue::Bw7_8kHz).unwrap();
     sx1276.set_bandwidth(BandwidthValue::Bw10_4kHz).unwrap();
@@ -874,13 +759,7 @@ fn test_coding_rate() {
         nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
     }
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_coding_rate(CodingRateValue::Cr4_5).unwrap();
     sx1276.set_coding_rate(CodingRateValue::Cr4_6).unwrap();
@@ -909,13 +788,7 @@ fn test_implicit_header_mode() {
         SpiTransaction::transfer(vec![0x9D,0x01],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_implicit_header_mode(&false).unwrap();
     sx1276.set_implicit_header_mode(&true).unwrap();
@@ -953,13 +826,7 @@ fn test_spreading_factor() {
         nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
     }
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_spreading_factor(SpreadingFactorValue::SF6).unwrap();
     sx1276.set_spreading_factor(SpreadingFactorValue::SF7).unwrap();
@@ -994,13 +861,7 @@ fn test_tx_continous_mode() {
         SpiTransaction::transfer(vec![0x9E,0x08],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_tx_continuous_mode(&false).unwrap();
     sx1276.set_tx_continuous_mode(&true).unwrap();
@@ -1022,13 +883,7 @@ fn test_rx_payload_crc() {
         SpiTransaction::transfer(vec![0x9E,0x04],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_rx_payload_crc(&false).unwrap();
     sx1276.set_rx_payload_crc(&true).unwrap();
@@ -1047,13 +902,7 @@ fn test_payload_and_max_payload_length() {
         SpiTransaction::transfer(vec![0xA3,0xFF],vec![0x00,0x00]),
     ]);
 
-    let reset_line = PinMock::new(&init_reset_expectations);
-    let nss_line =  PinMock::new(&nss_expectations);
-    let dio0_line =  PinMock::new(&[]);
-    let spi = SpiMock::new(&spi_transactions);
-    let delay = MockNoop::new();
-
-    let mut sx1276 = SX1276::new(spi, reset_line, nss_line, dio0_line, delay).unwrap();
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
     sx1276.set_payload_length(&0x50).unwrap();
     sx1276.set_payload_max_length(&0xFF).unwrap();
