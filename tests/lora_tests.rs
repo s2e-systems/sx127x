@@ -640,38 +640,38 @@ fn test_rx_packet_count() {
     assert_eq!(sx1276.rx_packet_count().unwrap(),0xFFFF);
 }
 
-// #[test]
-// fn test_modem_status() {
-//     let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
+#[test]
+fn test_modem_status() {
+    let (init_reset_expectations,mut nss_expectations,mut spi_transactions) = get_sx1276_create_transactions();
 
-//     nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
-//     nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
-//     nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
+    nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
 
-//     spi_transactions.append(&mut vec![
-//         SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0xFF]),
-//         SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0xFF]),
-//         SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0b00010101]),
-//     ]);
+    spi_transactions.append(&mut vec![
+        SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x18,0x00],vec![0x00,0b00010101]),
+    ]);
 
-//     let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
+    let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
-//     assert_eq!(sx1276.rx_coding_rate().unwrap(),0b111);
+    assert_eq!(sx1276.rx_coding_rate().unwrap(),0b111);
 
-//     let modem_status_all_true = sx1276.modem_status().unwrap();
-//     assert_eq!(*modem_status_all_true.modem_clear(),true);
-//     assert_eq!(*modem_status_all_true.header_info_valid(),true);
-//     assert_eq!(*modem_status_all_true.rx_ongoing(),true);
-//     assert_eq!(*modem_status_all_true.signal_synchronized(),true);
-//     assert_eq!(*modem_status_all_true.signal_detected(),true);
+    let modem_status_all_true = sx1276.modem_status().unwrap();
+    assert_eq!(*modem_status_all_true.modem_clear(),true);
+    assert_eq!(*modem_status_all_true.header_info_valid(),true);
+    assert_eq!(*modem_status_all_true.rx_ongoing(),true);
+    assert_eq!(*modem_status_all_true.signal_synchronized(),true);
+    assert_eq!(*modem_status_all_true.signal_detected(),true);
 
-//     let modem_status_mixed = sx1276.modem_status().unwrap();
-//     assert_eq!(*modem_status_mixed.modem_clear(),true);
-//     assert_eq!(*modem_status_mixed.header_info_valid(),false);
-//     assert_eq!(*modem_status_mixed.rx_ongoing(),true);
-//     assert_eq!(*modem_status_mixed.signal_synchronized(),false);
-//     assert_eq!(*modem_status_mixed.signal_detected(),true);
-// }
+    let modem_status_mixed = sx1276.modem_status().unwrap();
+    assert_eq!(*modem_status_mixed.modem_clear(),true);
+    assert_eq!(*modem_status_mixed.header_info_valid(),false);
+    assert_eq!(*modem_status_mixed.rx_ongoing(),true);
+    assert_eq!(*modem_status_mixed.signal_synchronized(),false);
+    assert_eq!(*modem_status_mixed.signal_detected(),true);
+}
 
 #[test]
 fn test_bandwidth() {

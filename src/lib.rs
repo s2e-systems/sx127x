@@ -70,6 +70,27 @@ impl ModemStatus {
     }
 }
 
+impl num::FromPrimitive for ModemStatus {
+    fn from_u8(val: u8) ->  core::option::Option<ModemStatus> {
+        Some(ModemStatus{
+            modem_clear: (val & 0b10000 != 0),
+            header_info_valid: (val & 0b01000 != 0),
+            rx_ongoing: (val & 0b00100 != 0),
+            signal_synchronized: (val & 0b00010 != 0),
+            signal_detected: (val & 0b00001 != 0),
+        })
+    }
+
+    fn from_i64(_val: i64) ->  core::option::Option<ModemStatus> {
+        None
+    }
+
+    fn from_u64(_val: u64) ->  core::option::Option<ModemStatus> {
+        None
+    }
+}
+
+/// Values for the PA Ramp setting
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum PaRampValue {
     Ramp3_4ms = 0b0000,
@@ -114,9 +135,10 @@ pub enum TransceiverMode {
     CAD = 0x07,
 }
 
+/// LNA gain values. G1 -> Max gain
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum LnaGainValue {
-    G1 = 0b001,
+    G1 = 0b001, 
     G2 = 0b010,
     G3 = 0b011,
     G4 = 0b100,
@@ -124,12 +146,14 @@ pub enum LnaGainValue {
     G6 = 0b110,
 }
 
+/// LNA boost values
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum LnaBoostValue {
     Off = 0b00,
     On = 0b11,
 }
 
+/// Bandwidth values
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum BandwidthValue {
     Bw7_8kHz = 0b0000,
@@ -144,6 +168,7 @@ pub enum BandwidthValue {
     Bw500kHz = 0b1001,
 }
 
+/// Coding rate values
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum CodingRateValue {
     Cr4_5 = 0b001,
@@ -152,6 +177,7 @@ pub enum CodingRateValue {
     Cr4_8 = 0b100,
 }
 
+/// Spreading factor values
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum SpreadingFactorValue {
     SF6 = 6,
@@ -464,7 +490,11 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
         FifoRxBytesNb, 7, 0, rx_number_bytes, _, u8;
 
         /// Coding rate of last header received
-        ModemStat, 7, 5, rx_coding_rate, _, CodingRateValue;
+        ModemStat, 7, 5, rx_coding_rate, _, u8;
+
+        /// Modem status containing: Modem clear; Header info valid; RX on-going; Signal synchronized; Signal detected
+        ModemStat, 4, 0, modem_status, _, ModemStatus;
+
         // TODO: RSSI registers
 
         /// PLL failed to lock while attempting a TX/RX/CAD operation.
