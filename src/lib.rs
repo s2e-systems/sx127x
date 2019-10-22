@@ -1,9 +1,16 @@
-#![no_std]
+//! Platform agnostic LoRa interface driver for the Semtech SX127x chips.
+//! The software interface follows closely the register description table specification given in the datasheets of the
+//! [SX1276](https://www.semtech.com/products/wireless-rf/lora-transceivers/sx1276).
+//! 
+//! This driver was built using [`embedded-hal`] traits and does not depend on std.
+//! 
+//! [`embedded-hal`]: https://docs.rs/embedded-hal/~0.2
+//! 
+//! **Note:** Only the LoRa interface is implemented.
 
+#![no_std]
 extern crate embedded_hal;
 extern crate num;
-#[macro_use]
-extern crate bitfield;
 #[macro_use]
 extern crate num_derive;
 
@@ -12,92 +19,6 @@ use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::blocking::delay::DelayMs;
 
 const FX_OSC: u64 = 32_000_000; // Oscillator frequency Hz
-
-bitfield!{
-    struct PaConfig(u8);
-    pa_select, set_pa_select: 7;
-    max_power, set_max_power: 6,4;
-    output_power, set_output_power: 3,0;
-}
-
-bitfield!{
-    struct OpMode(u8);
-    long_range_mode, set_long_range_mode: 7;
-    low_frequency_mode_on, set_low_frequency_mode_on: 3;
-    mode, set_mode: 2,0; 
-}
-
-bitfield!{
-    struct PaRamp(u8);
-    pa_ramp, set_pa_ramp: 3,0;
-}
-
-bitfield!{
-    struct Ocp(u8);
-    ocp_on, set_ocp_on: 5;
-    ocp_trim, set_ocp_trim: 4,0;
-}
-
-bitfield!{
-    struct Lna(u8);
-    lna_gain, set_lna_gain: 7,5;
-    lna_boost_hf, set_lna_boost_hf: 1,0;
-}
-
-bitfield!{
-    struct IrqFlagsMask(u8);
-    rx_timeout_mask, set_rx_timeout_mask: 7;
-    rx_done_mask, set_rx_done_mask: 6;
-    payload_crc_error_mask, set_payload_crc_error_mask: 5;
-    valid_header_mask, set_valid_header_mask: 4;
-    tx_done_mask, set_tx_done_mask: 3;
-    cad_done_mask, set_cad_done_mask: 2;
-    fhss_change_channel_mask, set_fhss_change_channel_mask: 1;
-    cad_detected_mask, set_cad_detected_mask: 0;
-}
-
-bitfield!{
-    struct IrqFlags(u8);
-    rx_timeout, clear_rx_timeout: 7;
-    rx_done, clear_rx_done: 6;
-    payload_crc_error, clear_payload_crc_error: 5;
-    valid_header, clear_valid_header: 4;
-    tx_done, clear_tx_done: 3;
-    cad_done, clear_cad_done: 2;
-    fhss_change_channel, clear_fhss_change_channel: 1;
-    cad_detected, clear_cad_detected: 0;
-}
-
-bitfield!{
-    struct ModemStat(u8);
-    rx_coding_rate, _ : 7,5;
-    modem_clear, _ : 4;
-    header_info_valid, _ : 3;
-    rx_ongoing, _ : 2;
-    signal_synchronized, _ : 1;
-    signal_detected, _ : 0;
-}
-
-bitfield!{
-    struct ModemConfig1(u8);
-    bw, set_bw: 7,4;
-    coding_rate, set_coding_rate: 3,1;
-    implicit_header_mode, set_implicit_header_mode: 0;
-}
-
-bitfield!{
-    struct ModemConfig2(u8);
-    spreading_factor, set_spreading_factor: 7,4;
-    tx_continuous_mode, set_tx_continuous_mode: 3;
-    rx_payload_crc_on, set_rx_payload_crc_on: 2;
-    symb_timeout_msb, set_symb_timeout_msb: 1, 0;
-}
-
-bitfield!{
-    struct ModemConfig3(u8);
-    low_data_rate_optimize, set_low_data_rate_optimize: 3;
-    agc_auto_on, set_agc_auto_on: 2;
-}
 
 /// Error type combining SPI and Pin errors for utility
 #[derive(Debug, Clone, PartialEq)]
@@ -110,7 +31,7 @@ pub enum Error<SpiError, PinError> {
     Aborted,
 }
 
-#[allow(dead_code)]
+/// Implementation of the interface for SX1276/7/8 chips.
 pub struct SX1276<O1: OutputPin, O2: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>>{
     reset_line: O1,
     nss_line: O2,
@@ -118,6 +39,7 @@ pub struct SX1276<O1: OutputPin, O2: OutputPin, S: spi::Transfer<u8>, D: DelayMs
     delay: D,
 }
 
+/// Convinience struct to collect all the modem status read from RegModemStat.
 pub struct ModemStatus {
     modem_clear: bool,
     header_info_valid: bool,
@@ -149,12 +71,6 @@ impl ModemStatus {
 }
 
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
-pub enum Modulation {
-    FSK = 0x00,
-    OOK = 0x01,
-}
-
-#[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum PaRampValue {
     Ramp3_4ms = 0b0000,
     Ramp2_0ms = 0b0001,
@@ -174,9 +90,16 @@ pub enum PaRampValue {
     Ramp10us  = 0b1111,
 }
 
+#[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum PaSelect {
-    RfoPin,
-    PaBoost,
+    RfoPin = 0,
+    PaBoost = 1,
+}
+
+impl From<bool> for PaSelect {
+    fn from (i: bool) -> PaSelect {
+        num::FromPrimitive::from_u8(i as u8).unwrap()
+    }
 }
 
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
@@ -199,6 +122,12 @@ pub enum LnaGainValue {
     G4 = 0b100,
     G5 = 0b101,
     G6 = 0b110,
+}
+
+#[derive(FromPrimitive, Debug, Clone, PartialEq)]
+pub enum LnaBoostValue {
+    Off = 0b00,
+    On = 0b11,
 }
 
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
@@ -251,7 +180,7 @@ enum Registers {
     FifoRxCurrentAddr = 0x10,
     IrqFlagsMask = 0x11,
     IrqFlags = 0x12,
-    RxNbBytes = 0x13,
+    FifoRxBytesNb = 0x13,
     RxHeaderCntValueMsb = 0x14,
     RxHeaderCntValueLsb = 0x15,
     RxPacketCntValueMsb = 0x16,
@@ -276,6 +205,102 @@ enum Registers {
     DioMapping2 = 0x41,
     Version = 0x42,
     PaDac = 0x4D,
+}
+
+macro_rules! sx127x_getter_function {
+    ( $(#[$outer:meta])* $function_name:ident, 7, 0, $register_name:ident, $reg_type:ty ) => {
+        $(#[$outer])*
+        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
+             self.read_register(Registers::$register_name)
+        }
+    };
+
+    ( $(#[$outer:meta])* $function_name:ident, $msb:tt, _, $register_name:ident, $reg_type:ty ) => {
+        $(#[$outer])*
+        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
+            let var = self.read_register(Registers::$register_name)?;
+            
+            Ok( <$reg_type>::from(((var & 1<<$msb) >> $msb) != 0) )
+        }
+    };
+
+    ( $(#[$outer:meta])* $function_name:ident, $msb:tt, $lsb:tt, $register_name:ident, $reg_type:ty ) => {
+        $(#[$outer])*
+        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
+            let var = self.read_register(Registers::$register_name)?;
+            
+            let mut bitmask = 0;
+            for i in $lsb..=$msb {
+                bitmask = bitmask | (1<<i);
+            }
+
+            Ok(num::FromPrimitive::from_u8(((var & bitmask) >> $lsb)).unwrap())
+        }
+    };
+}
+
+
+
+macro_rules! sx127x_setter_function {
+    ( $function_name:ident, 7, 0, $register_name:ident, $reg_type:ty ) => {
+        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
+            self.write_register(Registers::$register_name, &value)
+        }
+    };
+
+    ( $function_name:ident, $msb:tt, _, $register_name:ident, $reg_type:ty ) => {
+        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
+            let mut reg_value = self.read_register(Registers::$register_name)?;
+
+            reg_value = match value as u8{
+                1 => reg_value | (1<<$msb),
+                0 => reg_value & !(1<<$msb),
+                _ => reg_value,
+            };
+
+            self.write_register(Registers::$register_name, &reg_value)
+        }
+    };
+
+    ( $function_name:ident, $msb:tt, $lsb:tt, $register_name:ident, $reg_type:ty ) => {
+        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
+            // Create a bitmask and check the input range
+            let mut bitmask = 0;
+            for i in $lsb..=$msb {
+                bitmask = bitmask | (1<<i);
+            }
+
+            let write_value = value as u8;
+
+            if write_value > (bitmask >> $lsb) {
+                return Err(Error::InputOutOfRange); 
+            }
+
+            let mut reg_value = self.read_register(Registers::$register_name)?;
+
+            // Zero all the bits of the value to be changed before writting the new value
+            reg_value = reg_value & !bitmask;
+            
+            reg_value = reg_value | (write_value << $lsb);
+
+            self.write_register(Registers::$register_name, &reg_value)
+        }
+    };
+} 
+
+macro_rules! sx127x_interface {
+    ( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, _, $reg_type:ty ) => {
+        sx127x_getter_function!($(#[$outer])* $read_function_name, $msb, $lsb, $register_name, $reg_type); 
+    };
+
+    ( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, $write_function_name:ident, $reg_type:ty ) => {
+        sx127x_getter_function!($(#[$outer])* $read_function_name, $msb, $lsb, $register_name, $reg_type);
+        sx127x_setter_function!($write_function_name, $msb, $lsb, $register_name, $reg_type);
+    };
+
+    ( $( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, $write_function_name:tt, $reg_type:ty );* ) => {
+        $( sx127x_interface!($(#[$outer])* $register_name, $msb, $lsb, $read_function_name, $write_function_name, $reg_type); )*
+    };
 }
 
 impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = PinError>, S: spi::Transfer<u8, Error = SpiError>, D: DelayMs<u32>> SX1276<O1, O2, S, D> {
@@ -315,17 +340,208 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
         Ok(())
     }
 
-    pub fn version(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::Version)
-    }
+    sx127x_interface!(
+        /// LoRa (TM) base-band FIFO data input/output. FIFO is cleared and not
+        /// accessible when device is in SLEEP mode
+        Fifo, 7, 0, read_fifo, write_fifo, u8;
 
-    pub fn write_fifo(&mut self, value: &u8) -> Result<(), Error<SpiError, PinError>> {
-        self.write_register(Registers::Fifo, value)
-    }
+        /// Change between 0 -> FSK/OOK Mode and 1 -> LoRa (TM) Mode.
+        /// This bit can be modified only in Sleep mode. A write operation on
+        /// other device modes is ignored.
+        OpMode, 7, _, lora_mode, set_lora_mode, bool;
 
-    pub fn read_fifo(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::Fifo)
-    }
+        /// This bit operates when device is in Lora mode; if set it allows
+        /// access to FSK registers page located in address space
+        /// (0x0D:0x3F) while in LoRa mode.
+        /// 0 -> Access LoRa registers page 0x0D: 0x3F
+        /// 1 -> Access FSK registers page (in mode LoRa) 0x0D: 0x3F
+        OpMode, 6, _, access_shared_reg, set_access_shared_reg, bool;
+
+        /// Access Low Frequency Mode registers
+        /// 0 -> High Frequency Mode (access to HF test registers)
+        /// 1 -> Low Frequency Mode (access to LF test registers)
+        OpMode, 3, _, low_frequency_mode, set_low_frequency_mode, bool;
+
+        /// Device modes
+        OpMode, 2, 0, transceiver_mode, set_transceiver_mode, TransceiverMode;
+
+        // TODO: Frequency registers
+        /// Selects PA output pin
+        /// 0 -> RFO pin. Output power is limited to +14 dBm.
+        /// 1 -> PA_BOOST pin. Output power is limited to +20 dBm
+        PaConfig, 7, _, pa_select, set_pa_select, PaSelect;
+
+        /// Select max output power: Pmax=10.8+0.6*MaxPower \[dBm\]
+        PaConfig, 6, 4, max_power, set_max_power, u8;
+
+        /// Output power
+        /// Pout=Pmax-(15-OutputPower) if PaSelect = 0 (RFO pin)
+        /// Pout=17-(15-OutputPower) if PaSelect = 1 (PA_BOOST pin)
+        PaConfig, 3, 0, output_power, set_output_power, u8;
+
+        /// Rise/Fall time of ramp up/down in FSK (probably meant LoRa in datasheet)
+        PaRamp, 3, 0, pa_ramp, set_pa_ramp, PaRampValue;
+
+        /// Overload current protection (OCP) for PA
+        Ocp, 5, _, over_current_protection, set_over_current_protection, bool;
+
+        /// Trimming of OCP current:
+        /// Imax = 45+5*OcpTrim \[mA\] if OcpTrim <= 15 (120 mA) 
+        /// Imax = -30+10*OcpTrim \[mA\] if 15 < OcpTrim <= 27 (130 to 240 mA)
+        /// Imax = 240mA for higher settings
+        /// Default Imax = 100mA
+        Ocp, 4, 0, ocp_trim, set_ocp_trim, u8;
+
+        /// LNA gain setting
+        Lna, 7, 5, lna_gain, set_lna_gain, LnaGainValue;
+
+        /// High Frequency (RFI_HF) LNA current adjustment
+        /// 00 -> Default LNA current
+        /// 11 -> Boost on, 150% LNA current
+        Lna, 1, 0, lna_boost_hf, set_lna_boost_hf, LnaBoostValue;
+
+        /// SPI interface address pointer in FIFO data buffer.
+        FifoAddrPtr, 7, 0, fifo_addr_ptr, set_fifo_addr_ptr, u8;
+
+        /// Write base address in FIFO data buffer for TX modulator
+        FifoTxBaseAddr, 7, 0, fifo_tx_base_addr, set_fifo_tx_base_addr, u8;
+
+        /// Read base address in FIFO data buffer for RX demodulator
+        FifoRxBaseAddr, 7, 0, fifo_rx_base_addr, set_fifo_rx_base_addr, u8;
+
+        /// Start address (in data buffer) of last packet received
+        FifoRxCurrentAddr, 7, 0, fifo_rx_current_addr, _, u8;
+
+        /// Timeout interrupt mask: setting this bit masks the corresponding IRQ in RegIrqFlags
+        IrqFlagsMask, 7, _, irq_rx_timeout_mask, set_irq_rx_timeout_mask, bool;
+
+        /// Packet reception complete interrupt mask: setting this bit masks the corresponding IRQ in RegIrqFlags
+        IrqFlagsMask, 6, _, irq_rx_done_mask, set_irq_rx_done_mask, bool;
+
+        /// Payload CRC error interrupt mask: setting this bit masks the corresponding IRQ in RegIrqFlags
+        IrqFlagsMask, 5, _, irq_payload_crc_error_mask, set_irq_payload_crc_error_mask, bool;
+
+        /// Valid header received in Rx mask: setting this bit masks the corresponding IRQ in RegIrqFlags
+        IrqFlagsMask, 4, _, irq_valid_header_mask, set_irq_valid_header_mask, bool;
+
+        /// FIFO Payload transmission complete interrupt mask: setting this bit masks the corresponding IRQ in RegIrqFlags
+        IrqFlagsMask, 3, _, irq_tx_done_mask, set_irq_tx_done_mask, bool;
+
+        /// CAD complete interrupt mask: setting this bit masks the corresponding IRQ in RegIrqFlags
+        IrqFlagsMask, 2, _, irq_cad_done_mask, set_irq_cad_done_mask, bool;
+
+        /// FHSS change channel interrupt mask: setting this bit masks the corresponding IRQ in RegIrqFlags
+        IrqFlagsMask, 1, _, irq_fhss_change_channel_mask, set_irq_fhss_change_channel_mask, bool;
+
+        /// Cad Detected Interrupt Mask: setting this bit masks the corresponding IRQ in RegIrqFlags
+        IrqFlagsMask, 0, _, irq_cad_detected_mask, set_irq_cad_detected_mask, bool;
+
+        /// Timeout interrupt: writing a 1 clears the IRQ
+        IrqFlags, 7, _, irq_rx_timeout, clear_irq_rx_timeout, bool;
+
+        /// Packet reception complete interrupt: writing a 1 clears the IRQ
+        IrqFlags, 6, _, irq_rx_done, clear_irq_rx_done, bool;
+
+        /// Payload CRC error interrupt: writing a 1 clears the IRQ
+        IrqFlags, 5, _, irq_payload_crc_error, clear_irq_payload_crc_error, bool;
+
+        /// Valid header received in Rx: writing a 1 clears the IRQ
+        IrqFlags, 4, _, irq_valid_header, clear_irq_valid_header, bool;
+
+        /// FIFO Payload transmission complete interrupt: writing a 1 clears the IRQ
+        IrqFlags, 3, _, irq_tx_done, clear_irq_tx_done, bool;
+
+        /// CAD complete: write to clear: writing a 1 clears the IRQ
+        IrqFlags, 2, _, irq_cad_done, clear_irq_cad_done, bool;
+
+        /// FHSS change channel interrupt: writing a 1 clears the IRQ
+        IrqFlags, 1, _, irq_fhss_change_channel, clear_irq_fhss_change_channel, bool;
+
+        /// Valid Lora signal detected during CAD operation: writing a 1 clears the IRQ
+        IrqFlags, 0, _, irq_cad_detected, clear_irq_cad_detected, bool;
+
+        /// Number of payload bytes of latest packet received
+        FifoRxBytesNb, 7, 0, rx_number_bytes, _, u8;
+
+        /// Coding rate of last header received
+        ModemStat, 7, 5, rx_coding_rate, _, CodingRateValue;
+        // TODO: RSSI registers
+
+        /// PLL failed to lock while attempting a TX/RX/CAD operation.
+        /// 1 -> PLL did not lock
+        /// 0 -> PLL did lock
+        HopChannel, 7, _, pll_timeout, _, bool;
+
+        /// CRC Information extracted from the received packet header
+        /// (Explicit header mode only)
+        /// 0 -> Header indicates CRC off
+        /// 1 -> Header indicates CRC on
+        HopChannel, 6, _, crc_on_payload, _, bool;
+
+        /// Current value of frequency hopping channel in use.
+        HopChannel, 5, 0, fhhs_present_channel, _, u8;
+
+        /// Signal bandwidth. In the lower band (169MHz), signal bandwidths 250kHz and 500kHz are not supported
+        ModemConfig1, 7, 4, bandwidth, set_bandwidth, BandwidthValue;
+
+        /// Error coding rate. In implicit header mode should be set on receiver to determine expected coding rate.
+        ModemConfig1, 3, 1, coding_rate, set_coding_rate, CodingRateValue;
+
+        /// Configure implicit header mode
+        ModemConfig1, 0, _, implicit_header_mode, set_implicit_header_mode, bool;
+
+        /// SF rate (expressed as a base-2 logarithm)
+        ModemConfig2, 7, 4, spreading_factor, set_spreading_factor, SpreadingFactorValue;
+
+        /// Tx Continuous mode
+        /// 0 -> normal mode, a single packet is sent
+        ///  1 -> continuous mode, send multiple packets across the FIFO (used for spectral analysis)
+        ModemConfig2, 3, _, tx_continuous_mode, set_tx_continuous_mode, bool;
+
+        /// Enable CRC generation and check on payload. If CRC is needed, RxPayloadCrcOn should be set:
+        /// - in Implicit header mode: on Tx and Rx side
+        /// - in Explicit header mode: on the Tx side alone (recovered from the header in Rx side)
+        ModemConfig2, 2, _, rx_payload_crc_on, set_rx_payload_crc_on, bool;
+
+        // TODO: Symb timeout
+        // TODO: Preamble length
+
+        /// Payload length in bytes. The register needs to be set in implicit
+        /// header mode for the expected packet length. A 0 value is not permitted
+        PayloadLength, 7, 0, payload_length, set_payload_length, u8;
+
+        /// Maximum payload length; if header payload length exceeds value a
+        /// header CRC error is generated. Allows filtering of packet with a bad size.
+        MaxPayloadLength, 7, 0, payload_max_length, set_payload_max_length, u8;
+
+        /// Symbol periods between frequency hops. (0 = disabled).
+        /// 1st hop always happen after the 1st header symbol
+        HopPeriod, 7, 0, freq_hopping_period, set_freq_hopping_period, u8;
+
+        /// Current value of RX databuffer pointer (address of last byte written by Lora receiver)
+        FifoRxByteAddr, 7, 0, fifo_rx_byte_addr_ptr, _, u8;
+
+        /// Low data rate optimize. 1 -> Enabled; mandated for when the symbol length exceeds 16ms
+        ModemConfig3, 3, _, low_data_rate_optimize, set_low_data_rate_optimize, bool;
+
+        /// 0 -> LNA gain set by register LnaGain
+        /// 1 -> LNA gain set by the internal AGC loop
+        ModemConfig3, 2, _, agc_auto_on, set_agc_auto_on, bool;
+
+        // TODO: Frequency error
+        // TODO: RSSI Wideband
+        // TODO: Detect optimize
+        // TODO: InvertIQ
+        // TODO: DetectionThreshold
+
+        /// LoRa Sync Word. Value 0x34 is reserved for LoRaWAN networks
+        SyncWord, 7, 0, sync_word, set_sync_word, u8;
+
+        /// Version of the chip
+        Version, 7, 0, version, _, u8
+        );
+
+
     pub fn frequency(&mut self) -> Result<u32, Error<SpiError, PinError>> {
         let freq_msb = self.read_register(Registers::FrfMsb)? as u64;
         let freq_mid = self.read_register(Registers::FrfMid)? as u64;
@@ -346,355 +562,6 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
         Ok(())
     }
 
-    pub fn set_pa_select(&mut self, pa_select: PaSelect) -> Result<(), Error<SpiError, PinError>> {
-        let mut pa_config = PaConfig(self.read_register(Registers::PaConfig)?);
-        
-        match pa_select {
-            PaSelect::RfoPin => pa_config.set_pa_select(false),
-            PaSelect::PaBoost => pa_config.set_pa_select(true),
-        };
-
-        self.write_register(Registers::PaConfig, &pa_config.0)
-    }
-
-    pub fn pa_select(&mut self) -> Result<PaSelect, Error<SpiError, PinError>> {
-        let pa_config = PaConfig(self.read_register(Registers::PaConfig)?);
-        match pa_config.pa_select() {
-            false => Ok(PaSelect::RfoPin),
-            true => Ok(PaSelect::PaBoost),
-        }
-    }
-
-    pub fn set_max_power(&mut self, max_power: &u8) -> Result<(), Error<SpiError, PinError>> {
-        if *max_power > 7 {
-            return Err(Error::InputOutOfRange);
-        }
-        let mut pa_config = PaConfig(self.read_register(Registers::PaConfig)?);
-        pa_config.set_max_power(*max_power);
-        self.write_register(Registers::PaConfig, &pa_config.0) 
-    }
-
-    pub fn max_power(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        let pa_config = PaConfig(self.read_register(Registers::PaConfig)?);
-        Ok(pa_config.max_power())
-    }
-
-    pub fn set_output_power(&mut self, output_power: &u8) -> Result<(), Error<SpiError, PinError>> {
-        if *output_power > 15 {
-            return Err(Error::InputOutOfRange);
-        }
-        let mut pa_config = PaConfig(self.read_register(Registers::PaConfig)?);
-        pa_config.set_output_power(*output_power);
-        self.write_register(Registers::PaConfig, &pa_config.0) 
-    }
-
-    pub fn output_power(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        let pa_config = PaConfig(self.read_register(Registers::PaConfig)?);
-        Ok(pa_config.output_power())
-    }
-
-    pub fn set_lora_mode(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut op_mode = OpMode(self.read_register(Registers::OpMode)?);
-        op_mode.set_long_range_mode(*on);
-        self.write_register(Registers::OpMode, &op_mode.0)
-    }
-
-    pub fn lora_mode(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let op_mode = OpMode(self.read_register(Registers::OpMode)?);
-        Ok(op_mode.long_range_mode())
-    }
-
-    pub fn set_transceiver_mode(&mut self, transceiver_mode: TransceiverMode) -> Result<(), Error<SpiError, PinError>> {
-        let mut op_mode = OpMode(self.read_register(Registers::OpMode)?);
-        op_mode.set_mode(transceiver_mode as u8);
-        self.write_register(Registers::OpMode, &op_mode.0)
-    }
-
-    pub fn transceiver_mode(&mut self) -> Result<TransceiverMode, Error<SpiError, PinError>> {
-        let opmode = OpMode(self.read_register(Registers::OpMode)?);
-
-        Ok(num::FromPrimitive::from_u8(opmode.mode()).unwrap())
-    }
-
-    pub fn set_low_frequency_mode(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut op_mode = OpMode(self.read_register(Registers::OpMode)?);
-        op_mode.set_low_frequency_mode_on(*on);
-        self.write_register(Registers::OpMode, &op_mode.0)
-    }
-
-    pub fn low_frequency_mode(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let op_mode = OpMode(self.read_register(Registers::OpMode)?);
-        Ok(op_mode.low_frequency_mode_on())
-    }
-
-    pub fn set_pa_ramp(&mut self, pa_ramp_value: PaRampValue) -> Result<(), Error<SpiError, PinError>> {
-        let mut pa_ramp = PaRamp(self.read_register(Registers::PaRamp)?);
-        pa_ramp.set_pa_ramp(pa_ramp_value as u8);
-        self.write_register(Registers::PaRamp, &pa_ramp.0)
-    }
-
-    pub fn pa_ramp(&mut self) -> Result<PaRampValue, Error<SpiError, PinError>> {
-        let pa_ramp = PaRamp(self.read_register(Registers::PaRamp)?);
-        Ok(num::FromPrimitive::from_u8(pa_ramp.pa_ramp()).unwrap())
-    }
-
-    pub fn set_over_current_protection(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut ocp = Ocp(self.read_register(Registers::Ocp)?);
-        ocp.set_ocp_on(*on);
-        self.write_register(Registers::Ocp, &ocp.0)
-    }
-
-    pub fn over_current_protection(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let ocp = Ocp(self.read_register(Registers::Ocp)?);
-        Ok(ocp.ocp_on())
-    }
-
-    pub fn set_ocp_trim(&mut self, ocp_trim: &u8) -> Result<(), Error<SpiError, PinError>> {
-        if *ocp_trim > 0x1F {
-            return Err(Error::InputOutOfRange);
-        }
-        let mut ocp = Ocp(self.read_register(Registers::Ocp)?);
-        ocp.set_ocp_trim(*ocp_trim);
-        self.write_register(Registers::Ocp, &ocp.0)
-    }
-
-    pub fn ocp_trim(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        let ocp = Ocp(self.read_register(Registers::Ocp)?);
-        Ok(ocp.ocp_trim())
-    }
-
-    pub fn set_lna_gain(&mut self, lna_gain: LnaGainValue) -> Result<(), Error<SpiError, PinError>> {
-        let mut lna = Lna(self.read_register(Registers::Lna)?);
-        lna.set_lna_gain(lna_gain as u8);
-        self.write_register(Registers::Lna, &lna.0)
-    }
-
-    pub fn lna_gain(&mut self) -> Result<LnaGainValue, Error<SpiError, PinError>> {
-        let lna = Lna(self.read_register(Registers::Lna)?);
-        Ok(num::FromPrimitive::from_u8(lna.lna_gain()).unwrap())
-    }
-
-    pub fn set_lna_boost_hf(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut lna = Lna(self.read_register(Registers::Lna)?);
-        match *on {
-            true => lna.set_lna_boost_hf(0b11),
-            false => lna.set_lna_boost_hf(0b00),
-        };
-        self.write_register(Registers::Lna, &lna.0)
-    }
-
-    pub fn set_fifo_addr_ptr(&mut self, addr: &u8) -> Result<(), Error<SpiError, PinError>> {
-        self.write_register(Registers::FifoAddrPtr, addr)
-    }
-
-    pub fn fifo_addr_ptr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::FifoAddrPtr)
-    }
-
-    pub fn set_fifo_tx_base_addr(&mut self, addr: &u8) -> Result<(), Error<SpiError, PinError>> {
-        self.write_register(Registers::FifoTxBaseAddr, addr)
-    }
-
-    pub fn fifo_tx_base_addr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::FifoTxBaseAddr)
-    }
-
-    pub fn set_fifo_rx_base_addr(&mut self, addr: &u8) -> Result<(), Error<SpiError, PinError>> {
-        self.write_register(Registers::FifoRxBaseAddr, addr)
-    }
-
-    pub fn fifo_rx_base_addr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::FifoRxBaseAddr)
-    }
-
-    pub fn fifo_rx_current_addr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::FifoRxCurrentAddr)
-    }
-
-    pub fn set_hop_period(&mut self, period: &u8) -> Result<(), Error<SpiError, PinError>> {
-        self.write_register(Registers::HopPeriod, period)
-    }
-
-    pub fn set_irq_rx_timeout_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        irq_flags_mask.set_rx_timeout_mask(*on);
-        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
-    }
-
-    pub fn irq_rx_timeout_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        Ok(irq_flags_mask.rx_timeout_mask())
-    }
-
-    pub fn set_irq_rx_done_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        irq_flags_mask.set_rx_done_mask(*on);
-        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
-    }
-
-    pub fn irq_rx_done_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        Ok(irq_flags_mask.rx_done_mask())
-    }
-
-    pub fn set_irq_payload_crc_error_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        irq_flags_mask.set_payload_crc_error_mask(*on);
-        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
-    }
-
-    pub fn irq_payload_crc_error_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        Ok(irq_flags_mask.payload_crc_error_mask())
-    }
-
-    pub fn set_irq_valid_header_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        irq_flags_mask.set_valid_header_mask(*on);
-        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
-    }
-
-    pub fn irq_valid_header_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        Ok(irq_flags_mask.valid_header_mask())
-    }
-
-    pub fn set_irq_tx_done_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        irq_flags_mask.set_tx_done_mask(*on);
-        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
-    }
-
-    pub fn irq_tx_done_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        Ok(irq_flags_mask.tx_done_mask())
-    }
-
-    pub fn set_irq_cad_done_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        irq_flags_mask.set_cad_done_mask(*on);
-        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
-    }
-
-    pub fn irq_cad_done_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        Ok(irq_flags_mask.cad_done_mask())
-    }
-
-    pub fn set_irq_fhss_change_channel_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        irq_flags_mask.set_fhss_change_channel_mask(*on);
-        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
-    }
-
-    pub fn irq_fhss_change_channel_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        Ok(irq_flags_mask.fhss_change_channel_mask())
-    }
-
-    pub fn set_irq_cad_detected_mask(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        irq_flags_mask.set_cad_detected_mask(*on);
-        self.write_register(Registers::IrqFlagsMask, &irq_flags_mask.0)
-    }
-
-    pub fn irq_cad_detected_mask(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags_mask = IrqFlagsMask(self.read_register(Registers::IrqFlagsMask)?);
-        Ok(irq_flags_mask.cad_detected_mask())
-    }
-
-    pub fn clear_irq_rx_timeout(&mut self) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        irq_flags.clear_rx_timeout(true);
-        self.write_register(Registers::IrqFlags, &irq_flags.0)
-    }
-
-    pub fn irq_rx_timeout(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        Ok(irq_flags.rx_timeout())
-    }
-
-    pub fn clear_irq_rx_done(&mut self) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        irq_flags.clear_rx_done(true);
-        self.write_register(Registers::IrqFlags, &irq_flags.0)
-    }
-
-    pub fn irq_rx_done(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        Ok(irq_flags.rx_done())
-    }
-
-    pub fn clear_irq_payload_crc_error(&mut self) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        irq_flags.clear_payload_crc_error(true);
-        self.write_register(Registers::IrqFlags, &irq_flags.0)
-    }
-
-    pub fn irq_payload_crc_error(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        Ok(irq_flags.payload_crc_error())
-    }
-
-    pub fn clear_irq_valid_header(&mut self) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        irq_flags.clear_valid_header(true);
-        self.write_register(Registers::IrqFlags, &irq_flags.0)
-    }
-
-    pub fn irq_valid_header(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        Ok(irq_flags.valid_header())
-    }
-
-    pub fn clear_irq_tx_done(&mut self) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        irq_flags.clear_tx_done(true);
-        self.write_register(Registers::IrqFlags, &irq_flags.0)
-    }
-
-    pub fn irq_tx_done(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        Ok(irq_flags.tx_done())
-    }
-
-    pub fn clear_irq_cad_done(&mut self) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        irq_flags.clear_cad_done(true);
-        self.write_register(Registers::IrqFlags, &irq_flags.0)
-    }
-
-    pub fn irq_cad_done(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        Ok(irq_flags.cad_done())
-    }
-
-    pub fn clear_irq_fhss_change_channel(&mut self) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        irq_flags.clear_fhss_change_channel(true);
-        self.write_register(Registers::IrqFlags, &irq_flags.0)
-    }
-
-    pub fn irq_fhss_change_channel(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        Ok(irq_flags.fhss_change_channel())
-    }
-
-    pub fn clear_irq_cad_detected(&mut self) -> Result<(), Error<SpiError, PinError>> {
-        let mut irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        irq_flags.clear_cad_detected(true);
-        self.write_register(Registers::IrqFlags, &irq_flags.0)
-    }
-
-    pub fn irq_cad_detected(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let irq_flags = IrqFlags(self.read_register(Registers::IrqFlags)?);
-        Ok(irq_flags.cad_detected())
-    }
-
-    pub fn rx_number_bytes(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::RxNbBytes)
-    }
-
     pub fn rx_header_count(&mut self) -> Result<u16, Error<SpiError, PinError>> {
         let valid_header_count_msb = self.read_register(Registers::RxHeaderCntValueMsb)?;
         let valid_header_count_lsb = self.read_register(Registers::RxHeaderCntValueLsb)?;
@@ -713,169 +580,34 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
         Ok(valid_packet_count)
     }
 
-    pub fn rx_coding_rate(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        let modem_stat = ModemStat(self.read_register(Registers::ModemStat)?);
-        Ok(modem_stat.rx_coding_rate())
-    }
-
-    pub fn modem_status(&mut self) -> Result<ModemStatus, Error<SpiError, PinError>> {
-        let modem_stat = ModemStat(self.read_register(Registers::ModemStat)?);
-        Ok(ModemStatus{
-            modem_clear: modem_stat.modem_clear(),
-            header_info_valid: modem_stat.header_info_valid(),
-            rx_ongoing: modem_stat.rx_ongoing(),
-            signal_synchronized: modem_stat.signal_synchronized(),
-            signal_detected: modem_stat.signal_detected(),
-        })
-    }
+    // pub fn modem_status(&mut self) -> Result<ModemStatus, Error<SpiError, PinError>> {
+    //     let modem_stat = ModemStat(self.read_register(Registers::ModemStat)?);
+    //     Ok(ModemStatus{
+    //         modem_clear: modem_stat.modem_clear(),
+    //         header_info_valid: modem_stat.header_info_valid(),
+    //         rx_ongoing: modem_stat.rx_ongoing(),
+    //         signal_synchronized: modem_stat.signal_synchronized(),
+    //         signal_detected: modem_stat.signal_detected(),
+    //     })
+    // }
 
     /************************ TO TEST LATER *********************** */
     // TODO: Convert the two's complement later
-    pub fn packet_snr_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::PktSnrValue)
-    }
+    // pub fn packet_snr_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+    //     self.read_register(Registers::PktSnrValue)
+    // }
 
-    pub fn packet_rssi_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::PktRssiValue)
-    }
+    // pub fn packet_rssi_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+    //     self.read_register(Registers::PktRssiValue)
+    // }
 
-    pub fn rssi_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::RssiValue)
-    }
+    // pub fn rssi_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
+    //     self.read_register(Registers::RssiValue)
+    // }
 
-    // TODO: HOP CHANNEL FUNCTION
-    // pub fn hop_channel(&mut self) -> Result<HopChannel, Error<SpiError, PinError>>
-    /* *********************************************** */
-
-    pub fn set_bandwidth(&mut self, bw: BandwidthValue) -> Result<(), Error<SpiError, PinError>> {
-        let mut modem_config1 = ModemConfig1(self.read_register(Registers::ModemConfig1)?);
-        modem_config1.set_bw(bw as u8);
-        self.write_register(Registers::ModemConfig1, &modem_config1.0)
-    }
-
-    pub fn bandwidth(&mut self) -> Result<BandwidthValue, Error<SpiError, PinError>> {
-        let modem_config1 = ModemConfig1(self.read_register(Registers::ModemConfig1)?);
-        Ok(num::FromPrimitive::from_u8(modem_config1.bw()).unwrap())
-    }
-
-    pub fn set_coding_rate(&mut self, cr: CodingRateValue) -> Result<(), Error<SpiError, PinError>> {
-        let mut modem_config1 = ModemConfig1(self.read_register(Registers::ModemConfig1)?);
-        modem_config1.set_coding_rate(cr as u8);
-        self.write_register(Registers::ModemConfig1, &modem_config1.0)
-    }
-
-    pub fn coding_rate(&mut self) -> Result<CodingRateValue, Error<SpiError, PinError>> {
-        let modem_config1 = ModemConfig1(self.read_register(Registers::ModemConfig1)?);
-        Ok(num::FromPrimitive::from_u8(modem_config1.coding_rate()).unwrap())
-    }
-
-    pub fn set_implicit_header_mode(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut modem_config1 = ModemConfig1(self.read_register(Registers::ModemConfig1)?);
-        modem_config1.set_implicit_header_mode(*on);
-        self.write_register(Registers::ModemConfig1, &modem_config1.0)
-    }
-
-    pub fn implicit_header_mode(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let modem_config1 = ModemConfig1(self.read_register(Registers::ModemConfig1)?);
-        Ok(modem_config1.implicit_header_mode())
-    }
-
-    pub fn set_spreading_factor(&mut self, sf: SpreadingFactorValue) -> Result<(), Error<SpiError, PinError>> {
-        let mut modem_config2 = ModemConfig2(self.read_register(Registers::ModemConfig2)?);
-        modem_config2.set_spreading_factor(sf as u8);
-        self.write_register(Registers::ModemConfig2, &modem_config2.0)
-    }
-
-    pub fn spreading_factor(&mut self) -> Result<SpreadingFactorValue, Error<SpiError, PinError>> {
-        let modem_config2 = ModemConfig2(self.read_register(Registers::ModemConfig2)?);
-        Ok(num::FromPrimitive::from_u8(modem_config2.spreading_factor()).unwrap())
-    }
-
-    pub fn set_tx_continuous_mode(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut modem_config2 = ModemConfig2(self.read_register(Registers::ModemConfig2)?);
-        modem_config2.set_tx_continuous_mode(*on);
-        self.write_register(Registers::ModemConfig2, &modem_config2.0)
-    }
-
-    pub fn tx_continuous_mode(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let modem_config2 = ModemConfig2(self.read_register(Registers::ModemConfig2)?);
-        Ok(modem_config2.tx_continuous_mode())
-    }
-
-    pub fn set_rx_payload_crc(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut modem_config2 = ModemConfig2(self.read_register(Registers::ModemConfig2)?);
-        modem_config2.set_rx_payload_crc_on(*on);
-        self.write_register(Registers::ModemConfig2, &modem_config2.0)
-    }
-
-    pub fn rx_payload_crc(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let modem_config2 = ModemConfig2(self.read_register(Registers::ModemConfig2)?);
-        Ok(modem_config2.rx_payload_crc_on())
-    }
-
-    pub fn set_symb_timeout(&mut self, value: &u8) -> Result<(), Error<SpiError, PinError>> {
-        self.write_register(Registers::SymbTimeoutLsb, value)
-    }
-
-    // TODO: PREAMBLE_LENGTH
-
-    pub fn set_payload_length(&mut self, length: &u8) -> Result<(), Error<SpiError, PinError>> {
-        if *length < 1 {
-            return Err(Error::InputOutOfRange);
-        }
-        self.write_register(Registers::PayloadLength, length)
-    }
-
-    pub fn payload_length(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::PayloadLength)
-    }
-
-    pub fn set_payload_max_length(&mut self, length: &u8) -> Result<(), Error<SpiError, PinError>> {
-        if *length < 1 {
-            return Err(Error::InputOutOfRange);
-        }
-        self.write_register(Registers::MaxPayloadLength, length)
-    }
-
-    pub fn payload_max_length(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::MaxPayloadLength)
-    }
-
-    //TODO: Freq hopping period
-
-    pub fn fifo_rx_byte_addr_ptr(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::FifoRxByteAddr)
-    }
-
-    pub fn set_low_data_rate_optimize(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut modem_config3 = ModemConfig3(self.read_register(Registers::ModemConfig3)?);
-        modem_config3.set_low_data_rate_optimize(*on);
-        self.write_register(Registers::ModemConfig3, &modem_config3.0)
-    }
-
-    pub fn low_data_rate_optimize(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let modem_config3 = ModemConfig3(self.read_register(Registers::ModemConfig3)?);
-        Ok(modem_config3.low_data_rate_optimize())
-    }
-
-    pub fn set_agc_auto(&mut self, on: &bool) -> Result<(), Error<SpiError, PinError>> {
-        let mut modem_config3 = ModemConfig3(self.read_register(Registers::ModemConfig3)?);
-        modem_config3.set_agc_auto_on(*on);
-        self.write_register(Registers::ModemConfig3, &modem_config3.0)
-    }
-
-    pub fn agc_auto(&mut self) -> Result<bool, Error<SpiError, PinError>> {
-        let modem_config3 = ModemConfig3(self.read_register(Registers::ModemConfig3)?);
-        Ok(modem_config3.agc_auto_on())
-    }
-    
-    pub fn set_sync_word(&mut self, sync_word: &u8) -> Result<(), Error<SpiError, PinError>> {
-        self.write_register(Registers::SyncWord, sync_word)
-    }
-
-    pub fn sync_word(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-        self.read_register(Registers::SyncWord)
-    }
+    // // TODO: HOP CHANNEL FUNCTION
+    // // pub fn hop_channel(&mut self) -> Result<HopChannel, Error<SpiError, PinError>>
+    // /* *********************************************** */
 
     fn select_receiver(&mut self) -> Result<(), Error<SpiError, PinError>> {
         self.nss_line.set_low().map_err(|e| Error::Pin(e))?;

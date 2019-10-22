@@ -1,5 +1,5 @@
 [package]
-name = "lorahatlib"
+name = "sx127x"
 version = "0.1.0"
 authors = ["Joao Rebelo <2730147+jrebelo@users.noreply.github.com>"]
 edition = "2018"
@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 num-derive = "0.3"
-bitfield = "0.13.2"
 
 [dependencies.embedded-hal]
 version = "0.2.3"
