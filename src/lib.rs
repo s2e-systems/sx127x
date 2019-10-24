@@ -1,6 +1,12 @@
 //! Platform agnostic LoRa interface driver for the Semtech SX127x chips.
+//! 
 //! The software interface follows closely the register description table specification given in the datasheets of the
-//! [SX1276](https://www.semtech.com/products/wireless-rf/lora-transceivers/sx1276).
+//! [SX1276](https://www.semtech.com/products/wireless-rf/lora-transceivers/sx1276). The read (getter) functions are named like the register using
+//! Rust naming conventions, e.g. ```self.coding_rate()``` returns the CodingRate value. The write (setter) functions are prepended with *set_* 
+//! or *clear_* when the write operation results in the bit being cleared. In some cases, for example for setting carrier frequency, convinience functions
+//! are provided to abstract numerical or other conversions. In those cases, the word *_register* has been applied to the getter and setter functions.
+//! For example, ```self.set_frequency_register(value: u32)``` would directly set value to the frequency registers whereas ```self.set_frequency(value_khz: u32)```
+//! converts the input in kHz to the equivalent integer value before setting the registers.
 //! 
 //! This driver was built using [`embedded-hal`] traits and does not depend on std.
 //! 
@@ -18,6 +24,149 @@ use embedded_hal::blocking::spi;
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::blocking::delay::DelayMs;
 
+macro_rules! sx127x_getter_function {
+    ( $(#[$outer:meta])* $function_name:ident, 7, 0, $register_name:ident, $reg_type:ty ) => {
+        $(#[$outer])*
+        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
+            let var = self.read_register(Registers::$register_name)?;
+
+            Ok ( <$reg_type>::from(var) )
+        }
+    };
+
+    ( $(#[$outer:meta])* $function_name:ident, $msb:tt, _, $register_name:ident, $reg_type:ty ) => {
+        $(#[$outer])*
+        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
+            let var = self.read_register(Registers::$register_name)?;
+            
+            Ok( <$reg_type>::from(((var & 1<<$msb) >> $msb) != 0) )
+        }
+    };
+
+    ( $(#[$outer:meta])* $function_name:ident, $msb:tt, $lsb:tt, $register_name:ident, $reg_type:ty ) => {
+        $(#[$outer])*
+        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
+            let var = self.read_register(Registers::$register_name)?;
+            
+            let mut bitmask = 0;
+            for i in $lsb..=$msb {
+                bitmask = bitmask | (1<<i);
+            }
+
+            Ok(num::FromPrimitive::from_u8(((var & bitmask) >> $lsb)).unwrap())
+        }
+    };
+
+    ( $(#[$outer:meta])* $function_name:ident, [$($register_name:ident)+], $reg_type:ty ) => {
+        $(#[$outer])*
+        #[allow(unused_assignments)]
+        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
+            let mut index = 0;
+            let mut result : $reg_type = 0; 
+
+            $(
+                result = result + ((self.read_register(Registers::$register_name)? as $reg_type) << (index*8));
+                index = index + 1;
+            )+
+
+            Ok(result)
+        }
+    };
+}
+
+macro_rules! sx127x_setter_function {
+    ( $function_name:ident, 7, 0, $register_name:ident, $reg_type:ty ) => {
+        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
+            self.write_register(Registers::$register_name, &(value as u8) )
+        }
+    };
+
+    ( $function_name:ident, $msb:tt, _, $register_name:ident, $reg_type:ty ) => {
+        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
+            let mut reg_value = self.read_register(Registers::$register_name)?;
+
+            reg_value = match value as u8{
+                1 => reg_value | (1<<$msb),
+                0 => reg_value & !(1<<$msb),
+                _ => reg_value,
+            };
+
+            self.write_register(Registers::$register_name, &reg_value)
+        }
+    };
+
+    ( $function_name:ident, $msb:tt, $lsb:tt, $register_name:ident, $reg_type:ty ) => {
+        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
+            // Create a bitmask and check the input range
+            let mut bitmask = 0;
+            for i in $lsb..=$msb {
+                bitmask = bitmask | (1<<i);
+            }
+
+            let write_value = value as u8;
+
+            if write_value > (bitmask >> $lsb) {
+                return Err(Error::InputOutOfRange); 
+            }
+
+            let mut reg_value = self.read_register(Registers::$register_name)?;
+
+            // Zero all the bits of the value to be changed before writting the new value
+            reg_value = reg_value & !bitmask;
+            
+            reg_value = reg_value | (write_value << $lsb);
+
+            self.write_register(Registers::$register_name, &reg_value)
+        }
+    };
+
+    ( $(#[$outer:meta])* $function_name:ident, [$($register_name:ident)+], $reg_type:ty ) => {
+        $(#[$outer])*
+        #[allow(unused_assignments)]
+        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
+            let mut index = 0;
+
+            $(
+                self.write_register(Registers::$register_name, &((value >> (index*8)) as u8))?;
+                index = index + 1;
+            )+
+
+            Ok(())
+        }
+    };
+} 
+
+macro_rules! sx127x_interface {
+    ( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, _, $reg_type:ty ) => {
+        sx127x_getter_function!($(#[$outer])* $read_function_name, $msb, $lsb, $register_name, $reg_type); 
+    };
+
+    ( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, $write_function_name:ident, $reg_type:ty ) => {
+        sx127x_getter_function!($(#[$outer])* $read_function_name, $msb, $lsb, $register_name, $reg_type);
+        sx127x_setter_function!($write_function_name, $msb, $lsb, $register_name, $reg_type);
+    };
+
+    ( $( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, $write_function_name:tt, $reg_type:ty ;)* ) => {
+        $( sx127x_interface!($(#[$outer])* $register_name, $msb, $lsb, $read_function_name, $write_function_name, $reg_type); )*
+    };
+}
+
+macro_rules! sx127x_multiregister_interface {
+
+    ( $(#[$outer:meta])* [$($register_name:ident)+], $read_function_name:ident, $write_function_name:ident, $reg_type:ty ) => {
+        sx127x_getter_function!($(#[$outer])* $read_function_name, [$($register_name)+], $reg_type); 
+        sx127x_setter_function!($(#[$outer])* $write_function_name, [$($register_name)+], $reg_type); 
+    };
+
+    ( $(#[$outer:meta])* [$($register_name:ident)+], $read_function_name:ident, _, $reg_type:ty ) => {
+        sx127x_getter_function!($(#[$outer])* $read_function_name, [$($register_name)+], $reg_type); 
+    };
+
+    ( $( $(#[$outer:meta])* [$($register_name:ident),+], $read_function_name:ident, $write_function_name:tt, $reg_type:ty ;)* ) => {
+        $( sx127x_multiregister_interface!($(#[$outer])* [$($register_name)+], $read_function_name, $write_function_name, $reg_type); )*
+    };
+}
+
 const FX_OSC: u64 = 32_000_000; // Oscillator frequency Hz
 
 /// Error type combining SPI and Pin errors for utility
@@ -29,14 +178,6 @@ pub enum Error<SpiError, PinError> {
     InputOutOfRange,
     UnexpectedResult,
     Aborted,
-}
-
-/// Implementation of the interface for SX1276/7/8 chips.
-pub struct SX1276<O1: OutputPin, O2: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>>{
-    reset_line: O1,
-    nss_line: O2,
-    spi: S,
-    delay: D,
 }
 
 /// Convinience struct to collect all the modem status read from RegModemStat.
@@ -90,7 +231,7 @@ impl num::FromPrimitive for ModemStatus {
     }
 }
 
-/// Values for the PA Ramp setting
+/// PA Ramp settings
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum PaRampValue {
     Ramp3_4ms = 0b0000,
@@ -111,6 +252,7 @@ pub enum PaRampValue {
     Ramp10us  = 0b1111,
 }
 
+/// PA selection
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum PaSelect {
     RfoPin = 0,
@@ -118,11 +260,12 @@ pub enum PaSelect {
 }
 
 impl From<bool> for PaSelect {
-    fn from (i: bool) -> PaSelect {
+    fn from (i: bool) -> Self {
         num::FromPrimitive::from_u8(i as u8).unwrap()
     }
 }
 
+/// Transceiver moder
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum TransceiverMode {
     Sleep = 0x00,
@@ -153,7 +296,16 @@ pub enum LnaBoostValue {
     On = 0b11,
 }
 
-/// Bandwidth values
+#[cfg(feature = "sx1272")]
+/// Bandwidth values for SX1272/3 chip
+pub enum BandwidthValue {
+    Bw125kHz = 0b00,
+    Bw250kHz = 0b01,
+    Bw500kHz = 0b10,
+}
+
+#[cfg(not(feature = "sx1272"))]
+/// Bandwidth values for SX1276/7/8 chip
 #[derive(FromPrimitive, Debug, Clone, PartialEq)]
 pub enum BandwidthValue {
     Bw7_8kHz = 0b0000,
@@ -187,6 +339,22 @@ pub enum SpreadingFactorValue {
     SF10 = 10,
     SF11 = 11,
     SF12 = 12,
+}
+
+/// Detection optimize values
+#[derive(FromPrimitive, Debug, Clone, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum DetectionOptimizeValue {
+    SF7_to_SF12 = 0x03,
+    SF6 = 0x05,
+}
+
+/// Detection threshold values
+#[derive(FromPrimitive, Debug, Clone, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum DetectionThresholdValue {
+    SF7_to_SF12 = 0x0A,
+    SF6 = 0x0C,
 }
 
 #[allow(dead_code)]
@@ -226,6 +394,13 @@ enum Registers {
     HopPeriod = 0x24,
     FifoRxByteAddr = 0x25,
     ModemConfig3 = 0x26,
+    FeiMsb = 0x28,
+    FeiMid = 0x29,
+    FeiLsb = 0x2A,
+    RssiWideband = 0x2C,
+    DetectOptimize = 0x31,
+    InvertIQ = 0x33,
+    DetectionThreshold = 0x37,
     SyncWord = 0x39,
     DioMapping1 = 0x40,
     DioMapping2 = 0x41,
@@ -233,106 +408,18 @@ enum Registers {
     PaDac = 0x4D,
 }
 
-macro_rules! sx127x_getter_function {
-    ( $(#[$outer:meta])* $function_name:ident, 7, 0, $register_name:ident, $reg_type:ty ) => {
-        $(#[$outer])*
-        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
-             self.read_register(Registers::$register_name)
-        }
-    };
-
-    ( $(#[$outer:meta])* $function_name:ident, $msb:tt, _, $register_name:ident, $reg_type:ty ) => {
-        $(#[$outer])*
-        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
-            let var = self.read_register(Registers::$register_name)?;
-            
-            Ok( <$reg_type>::from(((var & 1<<$msb) >> $msb) != 0) )
-        }
-    };
-
-    ( $(#[$outer:meta])* $function_name:ident, $msb:tt, $lsb:tt, $register_name:ident, $reg_type:ty ) => {
-        $(#[$outer])*
-        pub fn $function_name (&mut self) -> Result<$reg_type, Error<SpiError, PinError>> {
-            let var = self.read_register(Registers::$register_name)?;
-            
-            let mut bitmask = 0;
-            for i in $lsb..=$msb {
-                bitmask = bitmask | (1<<i);
-            }
-
-            Ok(num::FromPrimitive::from_u8(((var & bitmask) >> $lsb)).unwrap())
-        }
-    };
+/// Interface for SX1272/3/6/7/8 chips.
+pub struct SX127x<O1: OutputPin, O2: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>>{
+    reset_line: O1,
+    nss_line: O2,
+    spi: S,
+    delay: D,
 }
 
+impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = PinError>, S: spi::Transfer<u8, Error = SpiError>, D: DelayMs<u32>> SX127x<O1, O2, S, D> {
 
-
-macro_rules! sx127x_setter_function {
-    ( $function_name:ident, 7, 0, $register_name:ident, $reg_type:ty ) => {
-        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
-            self.write_register(Registers::$register_name, &value)
-        }
-    };
-
-    ( $function_name:ident, $msb:tt, _, $register_name:ident, $reg_type:ty ) => {
-        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
-            let mut reg_value = self.read_register(Registers::$register_name)?;
-
-            reg_value = match value as u8{
-                1 => reg_value | (1<<$msb),
-                0 => reg_value & !(1<<$msb),
-                _ => reg_value,
-            };
-
-            self.write_register(Registers::$register_name, &reg_value)
-        }
-    };
-
-    ( $function_name:ident, $msb:tt, $lsb:tt, $register_name:ident, $reg_type:ty ) => {
-        pub fn $function_name (&mut self, value: $reg_type) -> Result<(), Error<SpiError, PinError>> {
-            // Create a bitmask and check the input range
-            let mut bitmask = 0;
-            for i in $lsb..=$msb {
-                bitmask = bitmask | (1<<i);
-            }
-
-            let write_value = value as u8;
-
-            if write_value > (bitmask >> $lsb) {
-                return Err(Error::InputOutOfRange); 
-            }
-
-            let mut reg_value = self.read_register(Registers::$register_name)?;
-
-            // Zero all the bits of the value to be changed before writting the new value
-            reg_value = reg_value & !bitmask;
-            
-            reg_value = reg_value | (write_value << $lsb);
-
-            self.write_register(Registers::$register_name, &reg_value)
-        }
-    };
-} 
-
-macro_rules! sx127x_interface {
-    ( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, _, $reg_type:ty ) => {
-        sx127x_getter_function!($(#[$outer])* $read_function_name, $msb, $lsb, $register_name, $reg_type); 
-    };
-
-    ( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, $write_function_name:ident, $reg_type:ty ) => {
-        sx127x_getter_function!($(#[$outer])* $read_function_name, $msb, $lsb, $register_name, $reg_type);
-        sx127x_setter_function!($write_function_name, $msb, $lsb, $register_name, $reg_type);
-    };
-
-    ( $( $(#[$outer:meta])* $register_name:ident, $msb:tt, $lsb:tt, $read_function_name:ident, $write_function_name:tt, $reg_type:ty );* ) => {
-        $( sx127x_interface!($(#[$outer])* $register_name, $msb, $lsb, $read_function_name, $write_function_name, $reg_type); )*
-    };
-}
-
-impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = PinError>, S: spi::Transfer<u8, Error = SpiError>, D: DelayMs<u32>> SX1276<O1, O2, S, D> {
-
-    pub fn new(spi: S, reset_line: O1, nss_line: O2, delay: D) -> Result::<SX1276<O1, O2, S, D>, Error<SpiError, PinError>>{
-        let mut hat = SX1276 {
+    pub fn new(spi: S, reset_line: O1, nss_line: O2, delay: D) -> Result::<SX127x<O1, O2, S, D>, Error<SpiError, PinError>>{
+        let mut hat = SX127x {
             reset_line,
             nss_line,
             spi,
@@ -342,8 +429,11 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
         hat.reset()?;
 
         // Support only SX1276 for now. If another board is detect return an error.
-        if hat.version()? != 0x12 {
+        if cfg!(not(sx1272)) && hat.version()? != 0x12 {
            Err(Error::InvalidVersion)
+        }
+        else if cfg!(sx1272) && hat.version()? != 0x22 {
+            Err(Error::InvalidVersion)
         }
         else {
             Ok(hat)
@@ -357,7 +447,7 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
 
         self.reset_line.set_low().map_err(|e| Error::Pin(e))?;
 
-        self.delay.delay_ms(100);
+        self.delay.delay_ms(10);
 
         self.reset_line.set_high().map_err(|e| Error::Pin(e))?;
 
@@ -495,7 +585,20 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
         /// Modem status containing: Modem clear; Header info valid; RX on-going; Signal synchronized; Signal detected
         ModemStat, 4, 0, modem_status, _, ModemStatus;
 
-        // TODO: RSSI registers
+        /// Estimation of SNR on last packet received. In two’s compliment format mutiplied by 4.
+        PktSnrValue, 7, 0, packet_snr, _, u8;
+
+        /// RSSI of the latest packet received (dBm):
+        ///     RSSI(dBm) = -157 + Rssi (using HF output port, SNR >= 0)
+        /// or
+        ///     RSSI(dBm) = -164 + Rssi (using LF output port, SNR >= 0)
+        PktRssiValue, 7, 0, packet_rssi, _, u8;
+
+        /// Current RSSI value (dBm):
+        ///     RSS(dBm) = -157 + Rssi (using HF output port, SNR >= 0)
+        /// or
+        ///     RSSI(dBm) = -164 + Rssi (using LF output port, SNR >= 0)
+        RssiValue, 7, 0, rssi, _, u8;
 
         /// PLL failed to lock while attempting a TX/RX/CAD operation.
         /// 1 -> PLL did not lock
@@ -533,9 +636,6 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
         /// - in Explicit header mode: on the Tx side alone (recovered from the header in Rx side)
         ModemConfig2, 2, _, rx_payload_crc_on, set_rx_payload_crc_on, bool;
 
-        // TODO: Symb timeout
-        // TODO: Preamble length
-
         /// Payload length in bytes. The register needs to be set in implicit
         /// header mode for the expected packet length. A 0 value is not permitted
         PayloadLength, 7, 0, payload_length, set_payload_length, u8;
@@ -558,86 +658,61 @@ impl<SpiError, PinError, O1: OutputPin<Error = PinError>, O2: OutputPin<Error = 
         /// 1 -> LNA gain set by the internal AGC loop
         ModemConfig3, 2, _, agc_auto_on, set_agc_auto_on, bool;
 
-        // TODO: Frequency error
-        // TODO: RSSI Wideband
-        // TODO: Detect optimize
-        // TODO: InvertIQ
-        // TODO: DetectionThreshold
+        /// Wideband RSSI measurement used to locally generate a random number
+        RssiWideband, 7, 0, rssi_wideband, _, u8;
+        
+        /// LoRa Detection Optimize
+        DetectOptimize, 2, 0, detection_optimize, set_detection_optimize, DetectionOptimizeValue;
+
+        /// Invert the LoRa I and Q signals
+        InvertIQ, 6, _, invert_iq, set_invert_iq, bool;
+        
+        /// LoRa detection threshold
+        // This line differs from the datasheet to avoid getting into trouble with using a non u8 value for representing an enum
+        // in the macro system. Could be fixed with a from but that would probably make it panic.
+        DetectionThreshold, 6, 0, detection_threshold, set_detection_threshold, DetectionThresholdValue;
 
         /// LoRa Sync Word. Value 0x34 is reserved for LoRaWAN networks
         SyncWord, 7, 0, sync_word, set_sync_word, u8;
 
         /// Version of the chip
-        Version, 7, 0, version, _, u8
-        );
+        Version, 7, 0, version, _, u8;
+    );
 
+    sx127x_multiregister_interface!(
+        /// Preamble length, = PreambleLength + 4.25 Symbols
+        [PreambleMsb, PreambleLsb], preamble_length, set_preamble_length, u16;
 
+        /// RF carrier frequency in integer. frf = (FX_OSC * Frf)/2^19
+        [FrfLsb, FrfMid, FrfMsb], frequency_register, set_frequency_register, u32;
+
+        /// Number of valid headers received since last transition into
+        /// Rx mode. Header and packet counters are reseted in Sleep mode.
+        [RxHeaderCntValueLsb, RxHeaderCntValueMsb], rx_header_count, _, u16;
+
+        /// Number of valid packets received since last transition into 
+        /// Rx mode. Header and packet counters are reseted in Sleep mode.
+        [RxPacketCntValueLsb, RxPacketCntValueMsb], rx_packet_count, _, u16;
+
+        /// Estimated frequency error from modem
+        [FeiLsb, FeiMid, FeiMsb], estimated_frequency_error_register, _, u32;
+    );
+
+    /// Read the RF carrier frequency in kHz
     pub fn frequency(&mut self) -> Result<u32, Error<SpiError, PinError>> {
-        let freq_msb = self.read_register(Registers::FrfMsb)? as u64;
-        let freq_mid = self.read_register(Registers::FrfMid)? as u64;
-        let freq_lsb = self.read_register(Registers::FrfLsb)? as u64;
+        let freq_int = self.frequency_register()? as u64;
 
-        let freq = ((((freq_msb << 16) + (freq_mid << 8) + (freq_lsb << 0))) * FX_OSC) >> 19;
+        let freq = (freq_int* FX_OSC) >> 19;
 
         Ok(freq as u32)
     }
 
+    /// Set the RF carrier frequency in kHz
     pub fn set_frequency(&mut self, frequency: &u32) -> Result<(), Error<SpiError, PinError>> {
         let freq : u64 = (((*frequency) as u64) << 19) / FX_OSC;
 
-        self.write_register(Registers::FrfMsb, &(((freq >>16) & 0xFF) as u8))?;
-        self.write_register(Registers::FrfMid, &(((freq >> 8) & 0xFF) as u8))?;
-        self.write_register(Registers::FrfLsb, &(((freq >> 0) & 0xFF) as u8))?;
-
-        Ok(())
+        self.set_frequency_register(freq as u32)
     }
-
-    pub fn rx_header_count(&mut self) -> Result<u16, Error<SpiError, PinError>> {
-        let valid_header_count_msb = self.read_register(Registers::RxHeaderCntValueMsb)?;
-        let valid_header_count_lsb = self.read_register(Registers::RxHeaderCntValueLsb)?;
-
-        let valid_header_count : u16 = ((valid_header_count_msb as u16) << 8) + valid_header_count_lsb as u16;
-
-        Ok(valid_header_count)
-    }
-
-    pub fn rx_packet_count(&mut self) -> Result<u16, Error<SpiError, PinError>> {
-        let valid_packet_count_msb = self.read_register(Registers::RxPacketCntValueMsb)?;
-        let valid_packet_count_lsb = self.read_register(Registers::RxPacketCntValueLsb)?;
-
-        let valid_packet_count : u16 = ((valid_packet_count_msb as u16) << 8) + valid_packet_count_lsb as u16;
-
-        Ok(valid_packet_count)
-    }
-
-    // pub fn modem_status(&mut self) -> Result<ModemStatus, Error<SpiError, PinError>> {
-    //     let modem_stat = ModemStat(self.read_register(Registers::ModemStat)?);
-    //     Ok(ModemStatus{
-    //         modem_clear: modem_stat.modem_clear(),
-    //         header_info_valid: modem_stat.header_info_valid(),
-    //         rx_ongoing: modem_stat.rx_ongoing(),
-    //         signal_synchronized: modem_stat.signal_synchronized(),
-    //         signal_detected: modem_stat.signal_detected(),
-    //     })
-    // }
-
-    /************************ TO TEST LATER *********************** */
-    // TODO: Convert the two's complement later
-    // pub fn packet_snr_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-    //     self.read_register(Registers::PktSnrValue)
-    // }
-
-    // pub fn packet_rssi_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-    //     self.read_register(Registers::PktRssiValue)
-    // }
-
-    // pub fn rssi_value(&mut self) -> Result<u8, Error<SpiError, PinError>> {
-    //     self.read_register(Registers::RssiValue)
-    // }
-
-    // // TODO: HOP CHANNEL FUNCTION
-    // // pub fn hop_channel(&mut self) -> Result<HopChannel, Error<SpiError, PinError>>
-    // /* *********************************************** */
 
     fn select_receiver(&mut self) -> Result<(), Error<SpiError, PinError>> {
         self.nss_line.set_low().map_err(|e| Error::Pin(e))?;

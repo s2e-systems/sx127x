@@ -1,16 +1,14 @@
 extern crate sx127x;
 extern crate embedded_hal_mock;
 
-use sx127x::SX1276;
-use sx127x::{PaSelect,TransceiverMode, PaRampValue, LnaGainValue, BandwidthValue, CodingRateValue, SpreadingFactorValue, LnaBoostValue};
+use sx127x::SX127x;
+use sx127x::{PaSelect,TransceiverMode, PaRampValue, LnaGainValue, CodingRateValue, BandwidthValue, SpreadingFactorValue, LnaBoostValue};
 use sx127x::Error;
 
 use std::vec::Vec;
 
 use embedded_hal_mock::pin::{Transaction as PinTransaction, Mock as PinMock, State as PinState};
-
 use embedded_hal_mock::spi::{Mock as SpiMock, Transaction as SpiTransaction};
-
 use embedded_hal_mock::delay::MockNoop;
 
 fn get_sx1276_spi_chip_select_transactions() -> Vec<PinTransaction> {
@@ -36,13 +34,13 @@ fn get_sx1276_create_transactions() -> (Vec<PinTransaction>, Vec<PinTransaction>
     (reset_expectations, nss_expectations, spi_transactions)
 }
 
-fn create_sx1276(reset_expectations: &Vec<PinTransaction>, nss_expectations: &Vec<PinTransaction>, spi_expectations: &Vec<SpiTransaction>) -> SX1276<PinMock, PinMock, SpiMock, MockNoop> {
+fn create_sx1276(reset_expectations: &Vec<PinTransaction>, nss_expectations: &Vec<PinTransaction>, spi_expectations: &Vec<SpiTransaction>) -> SX127x<PinMock, PinMock, SpiMock, MockNoop> {
     let reset_line = PinMock::new(reset_expectations);
     let nss_line =  PinMock::new(nss_expectations);
     let spi = SpiMock::new(spi_expectations);
     let delay = MockNoop::new();
 
-    SX1276::new(spi, reset_line, nss_line, delay).unwrap()
+    SX127x::new(spi, reset_line, nss_line, delay).unwrap()
 }
 
 #[test]
@@ -57,7 +55,7 @@ fn test_create_lora() {
     // No delays in the operation
     let delay = MockNoop::new();
 
-    let _lora = SX1276::new(spi, reset_line, nss_line, delay).unwrap();
+    let _lora = SX127x::new(spi, reset_line, nss_line, delay).unwrap();
 }
 
 #[test]
@@ -76,7 +74,7 @@ fn test_create_wrong_lora_chip()
     // No delays in the operation
     let delay = MockNoop::new();
 
-    assert_eq!(SX1276::new(spi, reset_line, nss_line, delay).err(), Some(Error::InvalidVersion));
+    assert_eq!(SX127x::new(spi, reset_line, nss_line, delay).err(), Some(Error::InvalidVersion));
 }
 
 #[test]
@@ -89,9 +87,9 @@ fn test_set_frequency()
     nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
 
     spi_transactions.append(&mut vec![
-        SpiTransaction::transfer(vec![0x86,0xD9],vec![0x00,0x00]),
-        SpiTransaction::transfer(vec![0x87,0x06],vec![0x00,0x00]),
         SpiTransaction::transfer(vec![0x88,0x66],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x87,0x06],vec![0x00,0x00]),
+        SpiTransaction::transfer(vec![0x86,0xD9],vec![0x00,0x00]),
     ]);
 
     let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
@@ -110,9 +108,9 @@ fn test_get_frequency()
     nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
 
     spi_transactions.append(&mut vec![
-        SpiTransaction::transfer(vec![0x06,0x00],vec![0x00,0xD9]),
-        SpiTransaction::transfer(vec![0x07,0x00],vec![0x00,0x06]),
         SpiTransaction::transfer(vec![0x08,0x00],vec![0x00,0x66]),
+        SpiTransaction::transfer(vec![0x07,0x00],vec![0x00,0x06]),
+        SpiTransaction::transfer(vec![0x06,0x00],vec![0x00,0xD9]),
     ]);
 
     let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
@@ -477,8 +475,10 @@ fn test_base_addresses() {
 
     let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
 
+    println!("Test 1");
     assert_eq!(sx1276.fifo_addr_ptr().unwrap(),0x80);
     sx1276.set_fifo_addr_ptr(0x01).unwrap();
+    println!("Test 2");
     assert_eq!(sx1276.fifo_tx_base_addr().unwrap(),0x0F);
     sx1276.set_fifo_tx_base_addr(0x03).unwrap();
     assert_eq!(sx1276.fifo_rx_base_addr().unwrap(),0xFF);
@@ -606,10 +606,10 @@ fn test_rx_header_count() {
     nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
 
     spi_transactions.append(&mut vec![
-        SpiTransaction::transfer(vec![0x14,0x00],vec![0x00,0x80]),
         SpiTransaction::transfer(vec![0x15,0x00],vec![0x00,0x08]),
-        SpiTransaction::transfer(vec![0x14,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x14,0x00],vec![0x00,0x80]),
         SpiTransaction::transfer(vec![0x15,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x14,0x00],vec![0x00,0xFF]),
     ]);
 
     let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
@@ -628,10 +628,10 @@ fn test_rx_packet_count() {
     nss_expectations.append(&mut get_sx1276_spi_chip_select_transactions());
 
     spi_transactions.append(&mut vec![
-        SpiTransaction::transfer(vec![0x16,0x00],vec![0x00,0x80]),
         SpiTransaction::transfer(vec![0x17,0x00],vec![0x00,0x08]),
-        SpiTransaction::transfer(vec![0x16,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x16,0x00],vec![0x00,0x80]),
         SpiTransaction::transfer(vec![0x17,0x00],vec![0x00,0xFF]),
+        SpiTransaction::transfer(vec![0x16,0x00],vec![0x00,0xFF]),
     ]);
 
     let mut sx1276 = create_sx1276(&init_reset_expectations, &nss_expectations, &spi_transactions);
