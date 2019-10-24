@@ -1,14 +1,14 @@
-# SX127x LoRa Transmitter Rust Driver
+# SX127x LoRa Rust Driver
 
 This is a platform agnostic LoRa interface driver for the Semtech SX127x chips. This driver was built using [`embedded-hal`] traits and does not depend on std.
 
 [`embedded-hal`]: https://docs.rs/embedded-hal/~0.2
 
-By default the SX1276/7/8 family of chips is generated. To use the SX1272/3 family enable the *sx1272* feature in your cargo file.
+By default the SX1276/7/8 family of chips is targeted by this library. To use the SX1272/3 family enable the *sx1272* feature in your cargo file.
 
 ## Usage
 
-To use this driver, import this crate and an `embedded_hal` implementation, create the reset and chip select (NSS) pins and then instantiate the device. A partial example code could look like this:
+To use this driver, import this crate and an `embedded_hal` implementation for SPI and Output Pins, create the SPI, reset and chip select (NSS) pins, and then instantiate the device. A partial example code could look like this:
 
 ```rust
 let gpiochip = GpioChip::new(&"/dev/gpiochip0").unwrap();
