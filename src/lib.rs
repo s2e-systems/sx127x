@@ -409,7 +409,7 @@ enum Registers {
 }
 
 /// Interface for SX1272/3/6/7/8 chips.
-pub struct SX127x<O1: OutputPin, O2: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>>{
+pub struct SX127x<O1: OutputPin, O2: OutputPin, S: spi::Transfer<u8>, D: DelayMs<u32>> {
     reset_line: O1,
     nss_line: O2,
     spi: S,
